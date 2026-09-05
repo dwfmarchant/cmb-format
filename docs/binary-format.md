@@ -142,7 +142,7 @@ absent by default — a bare reference descriptor doesn't tell a reader
 what kind of mesh it refers to, or let it verify the pairing at all,
 and that's intentional, not an oversight: keeping a model paired with
 the right mesh is the *caller's* responsibility, the same trust model
-`mesh_core`'s own `Model` class already uses for exactly this problem
+`subcrop_mesh`'s own `Model` class already uses for exactly this problem
 (`Model` doesn't hold a mesh reference or any mesh-identifying
 information either — see its docstring). This format doesn't try to
 enforce a guarantee that the reference implementation of it doesn't
@@ -150,7 +150,7 @@ itself check.
 
 `default_padding` is optional and does not change the format version. When
 present it is a JSON list of exactly six non-negative integer values in
-canonical mesh-core order `[west, east, south, north, bottom, top]` (also
+canonical order `[west, east, south, north, bottom, top]` (also
 written `[x-, x+, y-, y+, z-, z+]`). Missing (or explicit JSON `null`) means
 no default padding (`None`). For an embedded `OctreeMesh`, the one shared
 setting is owned by its nested `base_mesh` descriptor and is stored there;
@@ -168,7 +168,7 @@ shape is available; a bare reference descriptor has no shape for this check.
 
 That said, `base_mesh` is still fully specified, for a writer or reader
 that *does* want a sanity check — building a validation layer on top of
-`mesh_core`, or a different language's implementation, for instance. A
+`subcrop_mesh`, or a different language's implementation, for instance. A
 writer may include it whenever it's cheap or useful to:
 
 - `base_mesh` (only meaningful for an `OctreeMesh` reference — see
@@ -334,12 +334,12 @@ breaking v1 files:
    `{"mode": "reference", "n_cells": ...}` descriptor is entirely valid,
    and a reader can't validate its pairing at all.
    This is deliberate for now, not just unfinished: it mirrors
-   `mesh_core`'s own `Model` class, which likewise holds no mesh
+   `subcrop_mesh`'s own `Model` class, which likewise holds no mesh
    reference or mesh-identifying information and leaves pairing to the
    caller (see its docstring) — there's no reader-side consumer in
-   `mesh_core` today that the field would actually feed. Worth
+   `subcrop_mesh` today that the field would actually feed. Worth
    revisiting if that changes: a validation layer built on top of
-   `mesh_core`, a different language's implementation, or real
+   `subcrop_mesh`, a different language's implementation, or real
    multi-file (mesh + separately-distributed model files) usage that
    wants the guarantee in practice.
 
@@ -391,8 +391,8 @@ it.
   descriptors above are — and depends on numpy alone. It has no notion of a
   mesh or model object, which is what keeps it free of any one consumer's
   type system.
-- **[`mesh-core`](https://github.com/dwfmarchant/mesh-core)** is the first
-  consumer. Its `mesh_core.io.cmb` module converts its own mesh and model
+- **[`subcrop-mesh`](https://github.com/dwfmarchant/subcrop-mesh)** is the first
+  consumer. Its `subcrop_mesh.io.cmb` module converts its own mesh and model
   classes to and from array dicts and is worth reading as a worked example
   of that layer. Its `docs/mesh-classes.md` and `docs/io-ubc.md` describe
   the prior art this format's conventions — cell numbering, coordinate

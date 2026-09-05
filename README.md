@@ -38,8 +38,8 @@ boundary is the point — it is what keeps the format independent of any one
 project's type system, and what makes the "implementable in any language from
 the spec alone" claim in the specification true rather than aspirational.
 
-[`mesh-core`](https://github.com/dwfmarchant/mesh-core) is the first consumer;
-its `mesh_core.io.cmb` module is worth reading as a worked example of that
+[`subcrop-mesh`](https://github.com/dwfmarchant/subcrop-mesh) is the first consumer;
+its `subcrop_mesh.io.cmb` module is worth reading as a worked example of that
 conversion layer.
 
 ## Versioning
