@@ -1,0 +1,79 @@
+{
+  "format_version": 1,
+  "mesh": {
+    "arrays": {
+      "h_x": {
+        "checksum": "sha256:fec3b3f542f1ce1663cded037897e99422b77491b845093a000ed065c0bce92e",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 0,
+        "shape": [
+          3
+        ]
+      },
+      "h_y": {
+        "checksum": "sha256:5f07eef034c5a21fedede8ef2f970fefbcc8ea44c02fd970117dacbee5483005",
+        "dtype": "float64",
+        "length": 16,
+        "offset": 24,
+        "shape": [
+          2
+        ]
+      },
+      "h_z": {
+        "checksum": "sha256:5e5c794534608bdcc5f3c19fd8d94ad66ab3aedaeb79694b00adab9d1df8e25f",
+        "dtype": "float64",
+        "length": 32,
+        "offset": 40,
+        "shape": [
+          4
+        ]
+      },
+      "origin": {
+        "checksum": "sha256:279037a8af1f19218073350990d5ee476685533d88191f2ad68b0821cf67dccb",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 72,
+        "shape": [
+          3
+        ]
+      }
+    },
+    "mesh_class": "TensorMesh",
+    "mode": "embedded"
+  },
+  "metadata": {
+    "survey": "demo"
+  },
+  "models": {
+    "rho": {
+      "array": {
+        "checksum": "sha256:a5ae410aa9d41464d8f47d2049e6b84b5925f7daa8b304f5ad816c6a84a78e6e",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 96,
+        "shape": [
+          3
+        ]
+      },
+      "metadata": {
+        "units": "ohm-m"
+      }
+    },
+    "sus": {
+      "array": {
+        "checksum": "sha256:130f14c9acd2516d415083b722e0565e77f1b4c0536fc85908e13724813f45be",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 120,
+        "shape": [
+          3
+        ]
+      },
+      "metadata": {
+        "air_value": -100.0,
+        "units": "SI"
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "format_version": 1,
+  "mesh": {
+    "arrays": {
+      "cell_size": {
+        "checksum": "sha256:08130bf4476807b562baaa468b61aa09a2e69ac26eeabb4a02bbd4642b0e87b7",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 0,
+        "shape": [
+          3
+        ]
+      },
+      "origin": {
+        "checksum": "sha256:9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 24,
+        "shape": [
+          3
+        ]
+      },
+      "shape": {
+        "checksum": "sha256:4d241bd3c3fc641b1efc068edf34ac9e2cea3cdc4d21d68ee4666dbd6cb90815",
+        "dtype": "int32",
+        "length": 12,
+        "offset": 48,
+        "shape": [
+          3
+        ]
+      }
+    },
+    "default_padding": [
+      2,
+      2,
+      1,
+      1,
+      0,
+      0
+    ],
+    "mesh_class": "UniformTensorMesh",
+    "mode": "embedded"
+  },
+  "metadata": {},
+  "models": {
+    "rho": {
+      "array": {
+        "checksum": "sha256:a5ae410aa9d41464d8f47d2049e6b84b5925f7daa8b304f5ad816c6a84a78e6e",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 60,
+        "shape": [
+          3
+        ]
+      },
+      "metadata": {
+        "units": "ohm-m"
+      }
+    }
+  }
+}

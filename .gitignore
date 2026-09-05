@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments (the workspace venv lives in the parent dev/ directory)
+.venv/
+venv/
+.env
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# NOTE: tests/goldens/ is deliberately NOT ignored. Those committed bytes are
+# the format's reference -- they are the whole point of this repository.
+
+# Local Claude Code instructions -- not meant to be committed
+/CLAUDE.md

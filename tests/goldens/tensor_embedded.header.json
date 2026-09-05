@@ -1,0 +1,47 @@
+{
+  "format_version": 1,
+  "mesh": {
+    "arrays": {
+      "h_x": {
+        "checksum": "sha256:fec3b3f542f1ce1663cded037897e99422b77491b845093a000ed065c0bce92e",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 0,
+        "shape": [
+          3
+        ]
+      },
+      "h_y": {
+        "checksum": "sha256:5f07eef034c5a21fedede8ef2f970fefbcc8ea44c02fd970117dacbee5483005",
+        "dtype": "float64",
+        "length": 16,
+        "offset": 24,
+        "shape": [
+          2
+        ]
+      },
+      "h_z": {
+        "checksum": "sha256:5e5c794534608bdcc5f3c19fd8d94ad66ab3aedaeb79694b00adab9d1df8e25f",
+        "dtype": "float64",
+        "length": 32,
+        "offset": 40,
+        "shape": [
+          4
+        ]
+      },
+      "origin": {
+        "checksum": "sha256:279037a8af1f19218073350990d5ee476685533d88191f2ad68b0821cf67dccb",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 72,
+        "shape": [
+          3
+        ]
+      }
+    },
+    "mesh_class": "TensorMesh",
+    "mode": "embedded"
+  },
+  "metadata": {},
+  "models": {}
+}

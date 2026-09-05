@@ -1,0 +1,61 @@
+{
+  "format_version": 1,
+  "mesh": {
+    "arrays": {
+      "level": {
+        "checksum": "sha256:052b88bc1e37e6f4b2711223339730ce3e5c5423f642a1d53428887102b15b82",
+        "dtype": "int8",
+        "length": 15,
+        "offset": 0,
+        "shape": [
+          15
+        ]
+      },
+      "position": {
+        "checksum": "sha256:077bf3d4b5f20ed35057f1c880397d18fe46d9ddc055588fb6d83bd6f6b47fa1",
+        "dtype": "int32",
+        "length": 60,
+        "offset": 15,
+        "shape": [
+          15
+        ]
+      }
+    },
+    "base_mesh": {
+      "arrays": {
+        "cell_size": {
+          "checksum": "sha256:cc143326a2646c605ea66139d7b440df7cbde18c050f1f8cf4dd30f42cfe7123",
+          "dtype": "float64",
+          "length": 24,
+          "offset": 75,
+          "shape": [
+            3
+          ]
+        },
+        "origin": {
+          "checksum": "sha256:9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0",
+          "dtype": "float64",
+          "length": 24,
+          "offset": 99,
+          "shape": [
+            3
+          ]
+        },
+        "shape": {
+          "checksum": "sha256:2afc299ae2c44dbad6b479482d2d7467d7defd66041659ed28ca5e8d83236e82",
+          "dtype": "int32",
+          "length": 12,
+          "offset": 123,
+          "shape": [
+            3
+          ]
+        }
+      },
+      "mesh_class": "UniformTensorMesh"
+    },
+    "mesh_class": "OctreeMesh",
+    "mode": "embedded"
+  },
+  "metadata": {},
+  "models": {}
+}
