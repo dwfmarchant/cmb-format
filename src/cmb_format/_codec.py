@@ -31,6 +31,8 @@ __all__ = [
     "INT8_MAX",
     "KIND_ITEMSIZE_TO_DTYPE_NAME",
     "MAGIC",
+    "READABLE_FORMAT_VERSIONS",
+    "WRITTEN_FORMAT_VERSION",
     "array_dtype_name",
     "base_mesh_descriptor",
     "descriptor_shape",
@@ -51,6 +53,18 @@ __all__ = [
 ]
 
 MAGIC = b"CELLMODB"
+
+# The wire's version, and the code's, are unrelated. `format_version` counts
+# incompatible changes to the bytes; this package's own version is ordinary
+# semver over its API. A release of cmb-format never implies a format change,
+# and a format change never implies a major release. Which versions a given
+# build handles is declared here rather than inferred from either number.
+#
+# A plain integer counter, not semver: there is no such thing as a patch
+# release of a byte layout. See docs/binary-format.md's Versioning section
+# for what does and does not warrant a bump.
+WRITTEN_FORMAT_VERSION = 1
+READABLE_FORMAT_VERSIONS = frozenset({1})
 
 DTYPE_TO_NUMPY = {
     "float64": "<f8",
@@ -383,9 +397,12 @@ def read_header(f) -> tuple[dict, int]:
 
     f.seek(header_start)
     header = json.loads(f.read(header_length).decode("utf-8"))
-    if header.get("format_version") != 1:
+    version = header.get("format_version")
+    if version not in READABLE_FORMAT_VERSIONS:
+        readable = ", ".join(str(v) for v in sorted(READABLE_FORMAT_VERSIONS))
         raise ValueError(
-            f"unsupported CMB format_version: {header.get('format_version')!r}"
+            f"unsupported CMB format_version: {version!r}; "
+            f"this build of cmb_format reads {{{readable}}}"
         )
     return header, data_start
 

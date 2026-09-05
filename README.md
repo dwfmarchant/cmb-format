@@ -42,6 +42,33 @@ the spec alone" claim in the specification true rather than aspirational.
 its `mesh_core.io.cmb` module is worth reading as a worked example of that
 conversion layer.
 
+## Versioning
+
+Two version numbers exist and they are **unrelated**:
+
+| | What it versions | Shape |
+| --- | --- | --- |
+| `format_version` in the file | the bytes | integer counter |
+| this package's version | this code | semver |
+
+A release of `cmb-format` never implies a format change, and a format change
+never implies a major release. They move at completely different rates — the
+code changes many times for every time the wire does — so tying them would
+mean no API fix without falsely implying existing files are stale.
+
+Which versions a build handles is stated as data, not inferred:
+
+```python
+cmb_format.WRITTEN_FORMAT_VERSION  # 1 -- what write_file stamps
+cmb_format.READABLE_FORMAT_VERSIONS  # {1} -- what read_header accepts
+```
+
+`format_version` is stamped by this package, never by a consumer, so a
+writer cannot omit it or drift from it. See the specification's Versioning
+section for what does and does not warrant a bump; the short version is that
+optional additions do not, because readers must ignore keys they do not
+recognise.
+
 ## Golden files
 
 `tests/goldens/` holds committed reference files — the bytes themselves are
