@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 import cmb_format as cmb
-from cases import CASES, build_bytes, build_header_and_buffer
+from cases import CASES, build_bytes
 
 VALID = build_bytes(CASES["tensor_with_models"])
 
@@ -42,12 +42,37 @@ def test_rejects_a_header_length_larger_than_the_file():
 
 
 def test_rejects_an_unsupported_format_version():
-    header, buffer = build_header_and_buffer(CASES["tensor_embedded"])
-    header["format_version"] = 2
+    # Hand-assembled: the package stamps WRITTEN_FORMAT_VERSION by design,
+    # so a file claiming a version it does not write has to be forged.
+    raw = bytearray(build_bytes(CASES["tensor_embedded"]))
+    (length,) = struct.unpack("<Q", raw[-16:-8])
+    header = json.loads(raw[len(raw) - 16 - length : -16])
+    header["format_version"] = 999
     blob = json.dumps(header).encode("utf-8")
-    raw = cmb.MAGIC + bytes(buffer) + blob + struct.pack("<Q", len(blob)) + cmb.MAGIC
+    forged = (
+        cmb.MAGIC
+        + bytes(raw[8 : len(raw) - 16 - length])
+        + blob
+        + struct.pack("<Q", len(blob))
+        + cmb.MAGIC
+    )
     with pytest.raises(ValueError, match="unsupported CMB format_version"):
-        cmb.read_header(_reader(raw))
+        cmb.read_header(_reader(forged))
+
+
+def test_version_constants_are_self_consistent():
+    # Whatever this build writes, it must also be able to read.
+    assert cmb.WRITTEN_FORMAT_VERSION in cmb.READABLE_FORMAT_VERSIONS
+
+
+def test_written_files_carry_the_packages_version(tmp_path):
+    # The point of write_file owning the stamp: a consumer cannot forget it
+    # or drift from it, because it never supplies it.
+    path = tmp_path / "stamped.cmb"
+    cmb.write_file(path, mesh=CASES["tensor_embedded"]["mesh"])
+    with open(path, "rb") as f:
+        header, _ = cmb.read_header(f)
+    assert header["format_version"] == cmb.WRITTEN_FORMAT_VERSION
 
 
 def test_detects_a_corrupted_array_via_its_checksum():
@@ -97,3 +122,47 @@ def test_padding_must_fit_the_mesh_it_describes():
         cmb.validate_default_padding_shape(
             cmb.normalize_default_padding([5, 5, 0, 0, 0, 0]), (3, 3, 3)
         )
+
+
+def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
+    # The spec's forward-compatibility rule, exercised. If this ever fails,
+    # every future optional field becomes a breaking change and the format
+    # can only be replaced, never grown.
+    raw = bytearray(build_bytes(CASES["octree_base_padding_models"]))
+    (length,) = struct.unpack("<Q", raw[-16:-8])
+    header = json.loads(raw[len(raw) - 16 - length : -16])
+
+    header["a_field_from_the_future"] = {"anything": [1, 2, 3]}
+    header["mesh"]["unknown_mesh_key"] = "ignored"
+    header["mesh"]["base_mesh"]["unknown_base_key"] = 42
+    header["mesh"]["arrays"]["level"]["unknown_array_key"] = True
+    for model in header["models"].values():
+        model["unknown_model_key"] = None
+        model["array"]["another_unknown"] = "x"
+
+    blob = json.dumps(header).encode("utf-8")
+    forged = (
+        cmb.MAGIC
+        + bytes(raw[8 : len(raw) - 16 - length])
+        + blob
+        + struct.pack("<Q", len(blob))
+        + cmb.MAGIC
+    )
+    path = tmp_path / "from_the_future.cmb"
+    path.write_bytes(forged)
+
+    assert cmb.is_cmb_file(path) is True
+    with open(path, "rb") as f:
+        parsed, data_start = cmb.read_header(f)
+        arrays = cmb.read_arrays(f, data_start, parsed["mesh"]["arrays"])
+        cmb.read_arrays(f, data_start, parsed["mesh"]["base_mesh"]["arrays"])
+        for model in parsed["models"].values():
+            cmb.read_array(f, data_start, model["array"])
+    # Known fields still parse, and the unknown ones rode along untouched
+    # rather than being rejected or silently dropped.
+    assert set(arrays) == {"level", "position"}
+    assert parsed["mesh"]["mesh_class"] == "OctreeMesh"
+    assert parsed["mesh"]["base_mesh"]["default_padding"] == [1, 1, 1, 1, 1, 1]
+    assert parsed["a_field_from_the_future"] == {"anything": [1, 2, 3]}
+    assert parsed["mesh"]["unknown_mesh_key"] == "ignored"
+    assert set(cmb.summarize_models(parsed)) == set(header["models"])

@@ -23,6 +23,8 @@ from cmb_format._codec import (
     INT8_MAX,
     KIND_ITEMSIZE_TO_DTYPE_NAME,
     MAGIC,
+    READABLE_FORMAT_VERSIONS,
+    WRITTEN_FORMAT_VERSION,
     array_dtype_name,
     base_mesh_descriptor,
     descriptor_shape,
@@ -42,6 +44,7 @@ from cmb_format._codec import (
     to_le_bytes,
 )
 from cmb_format._detect import is_cmb_file
+from cmb_format._file import build_file_bytes, write_file
 from cmb_format._padding import (
     normalize_default_padding,
     normalize_integer_array,
@@ -53,8 +56,11 @@ __all__ = [
     "INT8_MAX",
     "KIND_ITEMSIZE_TO_DTYPE_NAME",
     "MAGIC",
+    "READABLE_FORMAT_VERSIONS",
+    "WRITTEN_FORMAT_VERSION",
     "array_dtype_name",
     "base_mesh_descriptor",
+    "build_file_bytes",
     "descriptor_shape",
     "is_cmb_file",
     "normalize_default_padding",
@@ -74,4 +80,5 @@ __all__ = [
     "summarize_models",
     "to_le_bytes",
     "validate_default_padding_shape",
+    "write_file",
 ]

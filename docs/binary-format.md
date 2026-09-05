@@ -275,6 +275,12 @@ may have zero or more models.
 
 - Trailing `magic` matches exactly; reject otherwise.
 - `format_version` is a version the reader understands.
+- **Unknown keys are ignored, not rejected.** A reader MUST tolerate header
+  keys it does not recognise, at every level — file, mesh descriptor,
+  `base_mesh`, model entry, array descriptor. This is what allows the
+  format to gain optional fields without a version bump, and a reader that
+  rejects them makes every future addition a breaking change. Ignore what
+  you do not understand; validate what you do.
 - Every array's `length` equals `product(shape) * dtype_byte_width`, and
   `offset + length` does not exceed the data section's actual size.
 - Every array's `checksum` matches a fresh SHA-256 of its actual bytes
@@ -336,6 +342,44 @@ breaking v1 files:
    `mesh_core`, a different language's implementation, or real
    multi-file (mesh + separately-distributed model files) usage that
    wants the guarantee in practice.
+
+## Versioning
+
+`format_version` is a plain integer counter, not semver. There is no minor
+or patch component, because there is no such thing as a patch release of a
+byte layout: a file either parses under a version's rules or it does not.
+
+**A bump is required for** removing, renaming or retyping a field a reader
+must read; changing the byte layout, offsets, or the trailer; changing the
+dtype token strings; changing the meaning of an existing field.
+
+**A bump is not required for** adding an optional field a reader may ignore
+(see the unknown-key rule above), or anything placed in the arbitrary
+`metadata` dicts at file or model level. `metadata` is the intended home
+for experimental fields — put one there until it has earned promotion into
+the header proper, and no version has to move in the meantime.
+
+### Relationship to implementation versions
+
+None. `format_version` versions *the bytes*; an implementation's own
+version — `cmb-format`'s package version, or any other reader's — versions
+*its code*, and the two are deliberately unrelated. A release of
+`cmb-format` never implies a format change, and a format change never
+implies a major release of any particular implementation. Do not infer one
+from the other, and do not align them: implementations change far more
+often than the wire does, and tying them means no implementation can make a
+breaking API change without falsely implying that existing files are stale.
+
+The `cmb-format` package states which versions a given build handles as
+data rather than leaving it to be inferred:
+
+```python
+cmb_format.WRITTEN_FORMAT_VERSION  # the version write_file stamps
+cmb_format.READABLE_FORMAT_VERSIONS  # the versions read_header accepts
+```
+
+Other implementations should expose something equivalent. A reader that
+declines a file should say which versions it does handle.
 
 ## Implementations
 

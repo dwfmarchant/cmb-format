@@ -10,9 +10,6 @@ point, and distinguishable from each other, so a golden's bytes are readable
 in a hex dump when something goes wrong.
 """
 
-import json
-import struct
-
 import numpy as np
 
 import cmb_format as cmb
@@ -141,38 +138,12 @@ CASES = {
 }
 
 
-def build_header_and_buffer(case):
-    """Assemble a case into (header dict, data buffer).
-
-    Mirrors the field order a writer must use; the header's key order is part
-    of the bytes, so it is part of what the goldens pin.
-    """
-    buffer = bytearray()
-    mesh_dict = case["mesh"]
-    if mesh_dict.get("mode") == "reference":
-        mesh_dict = {
-            **mesh_dict,
-            "n_cells": cmb.resolve_reference_n_cells(
-                mesh_dict.get("n_cells"), case["models"]
-            ),
-        }
-    header = {
-        "format_version": 1,
-        "mesh": cmb.serialize_mesh(mesh_dict, buffer),
-        "metadata": case["metadata"],
-        "models": {
-            name: {
-                "metadata": entry["metadata"],
-                "array": cmb.serialize_array(entry["array"], buffer),
-            }
-            for name, entry in case["models"].items()
-        },
-    }
-    return header, buffer
-
-
 def build_bytes(case):
-    """Assemble a case into the exact bytes of a `.cmb` file."""
-    header, buffer = build_header_and_buffer(case)
-    blob = json.dumps(header).encode("utf-8")
-    return cmb.MAGIC + bytes(buffer) + blob + struct.pack("<Q", len(blob)) + cmb.MAGIC
+    """Assemble a case into the exact bytes of a `.cmb` file.
+
+    Delegates to `cmb_format.build_file_bytes` rather than reimplementing
+    the layout. That matters: a second implementation here would keep
+    producing the old bytes after a real layout change in the package, and
+    the goldens would match while the format had moved underneath them.
+    """
+    return cmb.build_file_bytes(case["mesh"], case["models"], case["metadata"])
