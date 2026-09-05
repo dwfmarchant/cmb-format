@@ -391,7 +391,7 @@ it.
   descriptors above are — and depends on numpy alone. It has no notion of a
   mesh or model object, which is what keeps it free of any one consumer's
   type system.
-- **[`mesh-core`](https://github.com/dwfmarchant/mesh-core)** is the first
+- **[`subcrop-mesh`](https://github.com/dwfmarchant/subcrop-mesh)** is the first
   consumer. Its `mesh_core.io.cmb` module converts its own mesh and model
   classes to and from array dicts and is worth reading as a worked example
   of that layer. Its `docs/mesh-classes.md` and `docs/io-ubc.md` describe
