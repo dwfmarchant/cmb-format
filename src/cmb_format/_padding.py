@@ -66,7 +66,12 @@ def normalize_integer_array(
 def normalize_default_padding(
     default_padding: ArrayLike | None,
 ) -> NDArray[np.integer] | None:
-    """Normalize padding to a read-only int64 array in mesh-core order."""
+    """Normalize padding to a read-only int64 array in canonical order.
+
+    Canonical order is ``[west, east, south, north, bottom, top]``, defined
+    by ``docs/binary-format.md`` -- the format's own convention, not any
+    consumer's.
+    """
     if default_padding is None:
         return None
     normalized = normalize_integer_array(

@@ -150,7 +150,7 @@ itself check.
 
 `default_padding` is optional and does not change the format version. When
 present it is a JSON list of exactly six non-negative integer values in
-canonical mesh-core order `[west, east, south, north, bottom, top]` (also
+canonical order `[west, east, south, north, bottom, top]` (also
 written `[x-, x+, y-, y+, z-, z+]`). Missing (or explicit JSON `null`) means
 no default padding (`None`). For an embedded `OctreeMesh`, the one shared
 setting is owned by its nested `base_mesh` descriptor and is stored there;
