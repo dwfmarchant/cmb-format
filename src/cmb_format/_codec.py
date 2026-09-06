@@ -27,6 +27,7 @@ __all__ = [
     "array_dtype_name",
     "base_mesh_descriptor",
     "descriptor_shape",
+    "header_cell_count",
     "padding_as_json",
     "padding_belongs_to_base_mesh",
     "read_array",
@@ -41,6 +42,7 @@ __all__ = [
     "shape_from_mesh_arrays",
     "summarize_models",
     "to_le_bytes",
+    "validate_model_lengths",
 ]
 
 MAGIC = b"CELLMODB"
@@ -373,9 +375,11 @@ def read_arrays(f, data_start: int, descriptors: dict) -> dict:
 def read_header(f) -> tuple[dict, int]:
     """Read a CMB file's trailing JSON header from an open binary file.
 
-    Checks the minimum file size, trailing magic, header-length bounds, and
-    format version. Parses the JSON without validating the full header schema
-    or reading array data.
+    Checks the minimum file size, trailing magic, header-length bounds,
+    format version, and that every model is one value per cell. Does not
+    otherwise validate the header schema, and reads no array data beyond the
+    twelve-byte ``shape`` array a ``UniformTensorMesh`` needs for its cell
+    count.
 
     Returns ``(header, data_start)``, where ``data_start`` is byte 8 and array
     offsets are relative to it. Changes the file position.
@@ -405,7 +409,59 @@ def read_header(f) -> tuple[dict, int]:
             f"unsupported CMB format_version: {version!r}; "
             f"this build of cmb_format reads {{{readable}}}"
         )
+    validate_model_lengths(
+        header.get("models", {}),
+        header_cell_count(f, header.get("mesh", {}), data_start),
+    )
     return header, data_start
+
+
+def header_cell_count(f, mesh: dict, data_start: int) -> int | None:
+    """Cells the mesh descriptor of a parsed header describes.
+
+    Reads the ``shape`` array for ``UniformTensorMesh`` -- twelve bytes at a
+    known offset -- since that class states its cell counts as values rather
+    than array lengths. Returns None when the descriptor is too incomplete to
+    say.
+    """
+    if mesh.get("mode") == "reference":
+        n_cells = mesh.get("n_cells")
+        return int(n_cells) if isinstance(n_cells, int) else None
+
+    arrays = mesh.get("arrays")
+    if not isinstance(arrays, dict):
+        return None
+    try:
+        mesh_class = mesh["mesh_class"]
+        if mesh_class == "TensorMesh":
+            return (
+                arrays["h_x"]["shape"][0]
+                * arrays["h_y"]["shape"][0]
+                * arrays["h_z"]["shape"][0]
+            )
+        if mesh_class == "OctreeMesh":
+            return arrays["level"]["shape"][0]
+        if mesh_class == "UniformTensorMesh":
+            return int(np.prod(read_array(f, data_start, arrays["shape"])))
+    except (KeyError, IndexError, TypeError):
+        return None
+    return None
+
+
+def validate_model_lengths(models: dict, n_cells: int | None) -> None:
+    """Raise if any model array descriptor is not one value per cell."""
+    if n_cells is None or not isinstance(models, dict):
+        return
+    for name, entry in models.items():
+        shape = (entry or {}).get("array", {}).get("shape")
+        if shape is None or len(shape) != 1:
+            # Dimensionality is checked separately.
+            continue
+        if list(shape) != [n_cells]:
+            raise ValueError(
+                f"model {name!r} has shape {list(shape)}, but the mesh has "
+                f"{n_cells} cells; models are one value per cell"
+            )
 
 
 def summarize_models(header: dict) -> dict:

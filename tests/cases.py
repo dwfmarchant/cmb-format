@@ -75,25 +75,38 @@ def _octree(base_padding=None):
     }
 
 
-_RHO = {"metadata": {"units": "ohm-m"}, "array": np.array([1.0, 10.0, 100.0])}
-_RHO15 = {"metadata": {"units": "ohm-m"}, "array": np.arange(1.0, 16.0)}
-_SUS = {
-    "metadata": {"units": "SI", "air_value": -100.0},
-    "array": np.array([0.0, 0.5, 1.5]),
-}
+# Cell counts of the meshes above. Models must be one value per cell.
+_TENSOR_CELLS = 3 * 2 * 4
+_UNIFORM_CELLS = 4 * 4 * 2
+_OCTREE_CELLS = len(_OCTREE_LEVEL)
+_REFERENCE_CELLS = 3
 
-# Exercise each dtype; test_goldens.py checks tokens against a literal set.
-_ALL_DTYPES = {
-    f"m_{name}": {"metadata": {}, "array": np.arange(3, dtype=np.dtype(numpy_code))}
-    for name, numpy_code in cmb.DTYPE_TO_NUMPY.items()
-}
+
+def _rho(n):
+    return {"metadata": {"units": "ohm-m"}, "array": np.arange(1.0, n + 1.0)}
+
+
+def _sus(n):
+    return {
+        "metadata": {"units": "SI", "air_value": -100.0},
+        "array": np.arange(n, dtype=np.float64) * 0.5,
+    }
+
+
+def _all_dtypes(n):
+    """One model per dtype the format defines a token for."""
+    return {
+        f"m_{name}": {"metadata": {}, "array": np.arange(n, dtype=np.dtype(code))}
+        for name, code in cmb.DTYPE_TO_NUMPY.items()
+    }
+
 
 CASES = {
     "tensor_embedded": {"mesh": _tensor(), "metadata": {}, "models": {}},
     "tensor_with_models": {
         "mesh": _tensor(),
         "metadata": {"survey": "demo"},
-        "models": {"rho": _RHO, "sus": _SUS},
+        "models": {"rho": _rho(_TENSOR_CELLS), "sus": _sus(_TENSOR_CELLS)},
     },
     "tensor_padding": {
         "mesh": _tensor([1, 1, 1, 1, 2, 2]),
@@ -104,30 +117,34 @@ CASES = {
     "uniform_padding_models": {
         "mesh": _uniform([2, 2, 1, 1, 0, 0]),
         "metadata": {},
-        "models": {"rho": _RHO},
+        "models": {"rho": _rho(_UNIFORM_CELLS)},
     },
     "octree_embedded": {"mesh": _octree(), "metadata": {}, "models": {}},
     "octree_base_padding_models": {
         "mesh": _octree([1, 1, 1, 1, 1, 1]),
         "metadata": {"note": "octree"},
-        "models": {"rho": _RHO},
+        "models": {"rho": _rho(_OCTREE_CELLS)},
     },
     "reference_models_only": {
         "mesh": {"mode": "reference"},
         "metadata": {},
-        "models": {"rho": _RHO},
+        "models": {"rho": _rho(_REFERENCE_CELLS)},
     },
     "reference_explicit_n_cells": {
-        "mesh": {"mode": "reference", "n_cells": 3},
+        "mesh": {"mode": "reference", "n_cells": _REFERENCE_CELLS},
         "metadata": {},
-        "models": {"rho": _RHO},
+        "models": {"rho": _rho(_REFERENCE_CELLS)},
     },
     "reference_with_base_mesh": {
         "mesh": {"mode": "reference", "base_mesh": _base_mesh()},
         "metadata": {},
-        "models": {"rho": _RHO},
+        "models": {"rho": _rho(_REFERENCE_CELLS)},
     },
-    "all_dtypes": {"mesh": _tensor(), "metadata": {}, "models": _ALL_DTYPES},
+    "all_dtypes": {
+        "mesh": _tensor(),
+        "metadata": {},
+        "models": _all_dtypes(_TENSOR_CELLS),
+    },
 }
 
 

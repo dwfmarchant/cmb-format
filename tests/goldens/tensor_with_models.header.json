@@ -48,12 +48,12 @@
   "models": {
     "rho": {
       "array": {
-        "checksum": "sha256:a5ae410aa9d41464d8f47d2049e6b84b5925f7daa8b304f5ad816c6a84a78e6e",
+        "checksum": "sha256:ec9dd9d4d2d9f07d1b3b41a56a96227cbacd805743694cb047cf1137c6ce3a9f",
         "dtype": "float64",
-        "length": 24,
+        "length": 192,
         "offset": 96,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {
@@ -62,12 +62,12 @@
     },
     "sus": {
       "array": {
-        "checksum": "sha256:130f14c9acd2516d415083b722e0565e77f1b4c0536fc85908e13724813f45be",
+        "checksum": "sha256:b3861d8ec4850d4d791f6b8f96437d6db64e26995844feddf93d9b025cb081cd",
         "dtype": "float64",
-        "length": 24,
-        "offset": 120,
+        "length": 192,
+        "offset": 288,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {

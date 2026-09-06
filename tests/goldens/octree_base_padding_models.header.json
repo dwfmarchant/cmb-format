@@ -70,12 +70,12 @@
   "models": {
     "rho": {
       "array": {
-        "checksum": "sha256:a5ae410aa9d41464d8f47d2049e6b84b5925f7daa8b304f5ad816c6a84a78e6e",
+        "checksum": "sha256:2647ec7ec09b87a3c3265d5da878d9bd51ec18c151ed3dd6c07341234d0e142a",
         "dtype": "float64",
-        "length": 24,
+        "length": 120,
         "offset": 135,
         "shape": [
-          3
+          15
         ]
       },
       "metadata": {

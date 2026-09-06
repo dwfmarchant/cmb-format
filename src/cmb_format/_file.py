@@ -8,6 +8,8 @@ import json
 import os
 import struct
 
+import numpy as np
+
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
@@ -17,6 +19,45 @@ from cmb_format._codec import (
 )
 
 __all__ = ["build_file_bytes", "write_file"]
+
+
+def _mesh_cell_count(mesh: dict) -> int | None:
+    """Cells the mesh describes, from its arrays. None if it cannot be told."""
+    if mesh.get("mode") == "reference":
+        n = mesh.get("n_cells")
+        return int(n) if isinstance(n, int) else None
+    arrays = mesh.get("arrays")
+    if not isinstance(arrays, dict):
+        return None
+    try:
+        mesh_class = mesh["mesh_class"]
+        if mesh_class == "TensorMesh":
+            return len(arrays["h_x"]) * len(arrays["h_y"]) * len(arrays["h_z"])
+        if mesh_class == "OctreeMesh":
+            return len(arrays["level"])
+        if mesh_class == "UniformTensorMesh":
+            return int(np.prod(np.asarray(arrays["shape"])))
+    except (KeyError, TypeError):
+        return None
+    return None
+
+
+def _check_model_lengths(mesh: dict, models: dict) -> None:
+    """Raise if any model is not one value per cell."""
+    n_cells = _mesh_cell_count(mesh)
+    if n_cells is None:
+        return
+    for name, entry in models.items():
+        arr = np.asarray(entry["array"])
+        if arr.ndim != 1:
+            # Dimensionality is a separate error, reported by the caller.
+            continue
+        length = arr.shape[0]
+        if length != n_cells:
+            raise ValueError(
+                f"model {name!r} has {length} values, but the mesh has "
+                f"{n_cells} cells; models are one value per cell"
+            )
 
 
 def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
@@ -35,9 +76,13 @@ def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
             "n_cells": resolve_reference_n_cells(mesh.get("n_cells"), models),
         }
 
+    # Serialize the mesh first so its own validation reports before this.
+    mesh_header = serialize_mesh(mesh, buffer)
+    _check_model_lengths(mesh, models)
+
     header = {
         "format_version": WRITTEN_FORMAT_VERSION,
-        "mesh": serialize_mesh(mesh, buffer),
+        "mesh": mesh_header,
         "metadata": metadata or {},
         "models": {
             name: {

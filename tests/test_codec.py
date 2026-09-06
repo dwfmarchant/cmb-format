@@ -157,3 +157,44 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
     assert parsed["a_field_from_the_future"] == {"anything": [1, 2, 3]}
     assert parsed["mesh"]["unknown_mesh_key"] == "ignored"
     assert set(cmb.summarize_models(parsed)) == set(header["models"])
+
+
+def _forge_model_shape(case_name, shape):
+    """A valid file with one model's declared shape replaced."""
+    raw = bytearray(build_bytes(CASES[case_name]))
+    (length,) = struct.unpack("<Q", raw[-16:-8])
+    header = json.loads(raw[len(raw) - 16 - length : -16])
+    next(iter(header["models"].values()))["array"]["shape"] = shape
+    blob = json.dumps(header).encode("utf-8")
+    return (
+        cmb.MAGIC
+        + bytes(raw[8 : len(raw) - 16 - length])
+        + blob
+        + struct.pack("<Q", len(blob))
+        + cmb.MAGIC
+    )
+
+
+def test_write_rejects_a_model_that_is_not_one_value_per_cell(tmp_path):
+    with pytest.raises(ValueError, match="one value per cell"):
+        cmb.write_file(
+            tmp_path / "bad.cmb",
+            CASES["tensor_embedded"]["mesh"],
+            {"rho": {"metadata": {}, "array": np.arange(3.0)}},
+        )
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    ["tensor_with_models", "uniform_padding_models", "octree_base_padding_models"],
+)
+def test_read_rejects_a_model_that_is_not_one_value_per_cell(case_name):
+    # UniformTensorMesh states cell counts as array values, so this also
+    # covers the path that reads the shape array to derive them.
+    with pytest.raises(ValueError, match="one value per cell"):
+        cmb.read_header(_reader(_forge_model_shape(case_name, [7])))
+
+
+def test_reference_mode_model_length_is_checked_too():
+    with pytest.raises(ValueError, match="one value per cell"):
+        cmb.read_header(_reader(_forge_model_shape("reference_models_only", [99])))

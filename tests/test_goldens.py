@@ -13,6 +13,7 @@ import json
 import pathlib
 import struct
 
+import numpy as np
 import pytest
 
 import cmb_format as cmb
@@ -137,3 +138,37 @@ def test_every_case_has_both_a_golden_and_a_sidecar():
         )
     stray = {p.stem for p in GOLDENS.glob("*.cmb")} - set(CASE_NAMES)
     assert not stray, f"goldens with no case in cases.py: {sorted(stray)}"
+
+
+def _cell_count(f, header, data_start):
+    """Number of cells a golden's mesh descriptor describes."""
+    mesh = header["mesh"]
+    if mesh.get("mode") == "reference":
+        return mesh["n_cells"]
+    arrays = mesh["arrays"]
+    if mesh["mesh_class"] == "TensorMesh":
+        return (
+            arrays["h_x"]["shape"][0]
+            * arrays["h_y"]["shape"][0]
+            * arrays["h_z"]["shape"][0]
+        )
+    if mesh["mesh_class"] == "UniformTensorMesh":
+        return int(np.prod(cmb.read_array(f, data_start, arrays["shape"])))
+    if mesh["mesh_class"] == "OctreeMesh":
+        return arrays["level"]["shape"][0]
+    raise AssertionError(f"unhandled mesh_class {mesh['mesh_class']!r}")
+
+
+@pytest.mark.parametrize("name", CASE_NAMES)
+def test_models_are_one_value_per_cell(name):
+    """Every model array has length n_cells, per the specification."""
+    raw = (GOLDENS / f"{name}.cmb").read_bytes()
+    with io.BytesIO(raw) as f:
+        header, data_start = cmb.read_header(f)
+        n_cells = _cell_count(f, header, data_start)
+        wrong = {
+            model_name: entry["array"]["shape"][0]
+            for model_name, entry in header["models"].items()
+            if entry["array"]["shape"] != [n_cells]
+        }
+    assert wrong == {}, f"{name} has {n_cells} cells but models {wrong}"
