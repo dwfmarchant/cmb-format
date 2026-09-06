@@ -30,7 +30,6 @@ __all__ = [
     "array_dtype_name",
     "base_mesh_descriptor",
     "descriptor_shape",
-    "header_cell_count",
     "padding_as_json",
     "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
@@ -470,7 +469,7 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
             "mesh_class": mesh_dict["mesh_class"],
             "arrays": serialize_arrays(mesh_dict["arrays"], buffer),
         }
-    elif mode == "reference":
+    else:
         # Reference mode omits mesh_class; optional base geometry is added below.
         header = {
             "mode": "reference",
@@ -478,8 +477,6 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
                 mesh_dict["n_cells"], name="reference n_cells"
             ),
         }
-    else:
-        raise ValueError(f"unsupported mesh mode for serialization: {mode!r}")
 
     base = base_mesh_descriptor(mesh_dict)
     has_shared_padding = padding_belongs_to_base_mesh(mesh_dict)
@@ -837,17 +834,6 @@ def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None)
     shape = tuple(value)
     padding_as_json(mesh.get("default_padding"), shape)
     return math.prod(shape)
-
-
-def header_cell_count(f, mesh: dict, data_start: int) -> int:
-    """Cells the mesh descriptor of a parsed header describes.
-
-    Reads and checksum-verifies the three-element ``shape`` array for
-    ``UniformTensorMesh`` since that class states its cell counts as values
-    rather than array lengths. This reads 12 bytes for int32 or 24 bytes for
-    int64.
-    """
-    return _validate_parsed_mesh(f, mesh, data_start, None)
 
 
 def validate_model_lengths(models: dict, n_cells: int | None) -> None:
