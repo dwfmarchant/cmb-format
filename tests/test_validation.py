@@ -57,6 +57,12 @@ def test_writer_rejects_unknown_mesh_values(field, value):
     [
         ("uniform_embedded", "origin", np.zeros(3, dtype=np.float32), "origin"),
         ("uniform_embedded", "cell_size", np.zeros(3, dtype=np.float32), "cell_size"),
+        (
+            "uniform_embedded",
+            "shape",
+            np.array([0, 4, 2], dtype=np.int32),
+            "positive integer values",
+        ),
         ("tensor_embedded", "origin", np.zeros((3, 1)), "origin"),
         ("octree_embedded", "level", np.array([0], dtype=np.int16), "level"),
         (
@@ -88,6 +94,14 @@ def test_writer_rejects_non_power_of_two_octree_bases(shape):
     for mesh in meshes:
         with pytest.raises(ValueError, match="powers of two"):
             cmb.build_file_bytes(mesh)
+
+
+@pytest.mark.parametrize("case_name", ["tensor_embedded", "uniform_embedded"])
+def test_writer_rejects_non_octree_base_mesh(case_name):
+    mesh = fresh_mesh(case_name)
+    mesh["base_mesh"] = {}
+    with pytest.raises(ValueError, match="does not support base_mesh"):
+        cmb.build_file_bytes(mesh)
 
 
 def test_standalone_uniform_mesh_does_not_require_power_of_two_dimensions():
@@ -124,6 +138,16 @@ def test_reference_count_can_be_inferred_from_models():
     with io.BytesIO(raw) as f:
         header, _ = cmb.read_header(f)
     assert header["mesh"]["n_cells"] == 3
+
+
+def test_reference_count_must_match_model_length():
+    with pytest.raises(
+        ValueError, match=r"mesh has n_cells=3, but models have 1 cells"
+    ):
+        cmb.build_file_bytes(
+            {"mode": "reference", "n_cells": 3},
+            {"rho": {"array": np.ones(1)}},
+        )
 
 
 @pytest.mark.parametrize("value", [True, False, 3.0, -1, "3", [], {}, None])
@@ -215,6 +239,14 @@ def test_reader_rejects_missing_or_invalid_octree_base(mutation, match):
     else:
         header["mesh"]["base_mesh"]["mesh_class"] = "TensorMesh"
     with pytest.raises(ValueError, match=match):
+        cmb.read_header(io.BytesIO(frame(header, data)))
+
+
+@pytest.mark.parametrize("case_name", ["tensor_embedded", "uniform_embedded"])
+def test_reader_rejects_non_octree_base_mesh(case_name):
+    header, data = unpack_case(case_name)
+    header["mesh"]["base_mesh"] = {}
+    with pytest.raises(ValueError, match="does not support base_mesh"):
         cmb.read_header(io.BytesIO(frame(header, data)))
 
 
@@ -418,6 +450,13 @@ def test_raw_mesh_shape_and_compatibility_alias_accept_raw_partial_inputs():
     raw = {"mesh_class": "UniformTensorMesh", "arrays": {"shape": np.array([3, 2, 4])}}
     assert cmb.raw_mesh_shape(raw) == (3, 2, 4)
     assert cmb.descriptor_shape(raw) == (3, 2, 4)
+
+
+def test_raw_mesh_shape_rejects_octree_without_base_mesh():
+    mesh = fresh_mesh("octree_embedded")
+    del mesh["base_mesh"]
+    with pytest.raises(ValueError, match="missing required key 'base_mesh'"):
+        cmb.raw_mesh_shape(mesh)
 
 
 @pytest.mark.parametrize(
