@@ -1,29 +1,19 @@
-"""Assembling a whole CMB file.
+"""Assemble CMB files from mesh and model array dictionaries.
 
-The byte layout -- leading magic, data section, JSON header, header length,
-trailing magic -- is defined here and nowhere else. Before this module, each
-consumer assembled it from `serialize_mesh` / `serialize_array` plus its own
-`struct.pack`, which meant the layout lived in as many places as there were
-writers, and every one of them wrote its own `"format_version": 1` literal.
-
-That last part is the reason this exists. A version stamped by each consumer
-is a version this package cannot guarantee: a writer could omit it or set it
-wrong, and nothing would notice until a reader in some other process failed
-much later. `WRITTEN_FORMAT_VERSION` is stamped here, by the package that
-defines what the versions mean.
-
-Models arrive already normalized -- ``{name: {"metadata": {...}, "array":
-<ndarray>}}``. Turning a consumer's own model type into that shape is the
-consumer's job, the same boundary the rest of this package keeps.
+Writers stamp ``WRITTEN_FORMAT_VERSION`` and buffer the raw array data before
+writing the header and trailer. See ``docs/binary-format.md`` for the layout.
 """
 
 import json
 import os
 import struct
 
+import numpy as np
+
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
+    _validate_raw_mesh,
     resolve_reference_n_cells,
     serialize_array,
     serialize_mesh,
@@ -32,26 +22,53 @@ from cmb_format._codec import (
 __all__ = ["build_file_bytes", "write_file"]
 
 
-def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
-    """Build the header dict and the data buffer it describes.
+def _check_model_lengths(models: dict, n_cells: int) -> None:
+    """Raise if any model is not one value per cell."""
+    for name, entry in models.items():
+        if not isinstance(entry, dict) or "array" not in entry:
+            raise ValueError(f"model {name!r} must be an object with an 'array' field")
+        arr = np.asarray(entry["array"])
+        if arr.ndim != 1:
+            raise ValueError(
+                f"model {name!r} must be a 1D array, got shape {arr.shape}"
+            )
+        length = arr.shape[0]
+        if length != n_cells:
+            raise ValueError(
+                f"model {name!r} has {length} values, but the mesh has "
+                f"{n_cells} cells; models are one value per cell"
+            )
 
-    Key insertion order here is the header's key order on disk, so it is
-    part of the format's bytes, not a detail.
+
+def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
+    """Build the header dictionary and its array-data buffer.
+
+    Insertion order preserves the Python writer's exact serialization, which
+    is checked by golden files. The format does not require this JSON key order.
     """
-    models = models or {}
+    if not isinstance(mesh, dict):
+        raise ValueError("mesh must be a mapping")
+    if models is None:
+        models = {}
+    elif not isinstance(models, dict):
+        raise ValueError("models must be a mapping")
     buffer = bytearray()
 
     if mesh.get("mode") == "reference":
-        # A reference-mode file declares its cell count rather than carrying
-        # geometry; resolve it from the models when not given explicitly.
+        # Derive the count from model lengths and cross-check any supplied count.
         mesh = {
             **mesh,
             "n_cells": resolve_reference_n_cells(mesh.get("n_cells"), models),
         }
 
+    # Validate geometry and model cardinality before mutating the data buffer.
+    n_cells, _ = _validate_raw_mesh(mesh)
+    _check_model_lengths(models, n_cells)
+    mesh_header = serialize_mesh(mesh, buffer)
+
     header = {
         "format_version": WRITTEN_FORMAT_VERSION,
-        "mesh": serialize_mesh(mesh, buffer),
+        "mesh": mesh_header,
         "metadata": metadata or {},
         "models": {
             name: {
@@ -72,23 +89,26 @@ def write_file(
 ) -> None:
     """Write a complete CMB file.
 
-    Streams the data section straight out rather than concatenating it, so
-    peak memory stays at roughly one copy of the arrays. Prefer this over
-    `build_file_bytes` for anything large.
+    Buffers the full data section in memory, then writes the file's sections
+    separately. This avoids the additional complete-file byte string assembled
+    by `build_file_bytes`.
 
     Parameters
     ----------
     file_name : str or os.PathLike
-        Path to write to. Overwritten if it exists.
+        Output path. Overwritten if it exists.
     mesh : dict
-        An embedded-mode mesh dict (``mode``, ``mesh_class``, ``arrays``,
-        optionally ``base_mesh`` and ``default_padding``) or a
-        reference-mode one (``{"mode": "reference"}``, optionally with
-        ``n_cells`` or ``base_mesh``). See ``docs/binary-format.md``.
+        Mesh description containing raw geometry arrays for embedded mode,
+        or ``{"mode": "reference"}`` for models stored separately. Embedded
+        octrees require ``base_mesh``. See ``docs/binary-format.md`` for the
+        descriptor fields.
     models : dict, optional
-        ``{name: {"metadata": {...}, "array": <ndarray>}}``.
+        ``{name: {"metadata": {...}, "array": <ndarray>}}``. In reference mode,
+        model lengths determine ``n_cells`` and must match any supplied count.
+        If there are no models, the reference descriptor must supply ``n_cells``.
+        Named model entries are serialized in caller insertion order.
     metadata : dict, optional
-        Arbitrary file-level metadata.
+        File-level metadata.
     """
     header, buffer = _assemble(mesh, models, metadata)
     blob = json.dumps(header).encode("utf-8")
@@ -105,12 +125,11 @@ def build_file_bytes(
     models: dict | None = None,
     metadata: dict | None = None,
 ) -> bytes:
-    """Assemble a complete CMB file in memory.
+    """Return a complete CMB file as bytes.
 
-    Same layout as `write_file`, returned rather than written -- for tests,
-    round-tripping through a buffer, or handing bytes to something that
-    isn't a file. Holds the whole file in memory; use `write_file` for
-    anything large.
+    Accepts the same mesh, model, and metadata dictionaries as `write_file`.
+    Holds both the array-data buffer and assembled file in memory; `write_file`
+    avoids assembling the complete-file byte string.
     """
     header, buffer = _assemble(mesh, models, metadata)
     blob = json.dumps(header).encode("utf-8")

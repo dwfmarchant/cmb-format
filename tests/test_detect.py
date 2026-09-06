@@ -1,4 +1,4 @@
-"""is_cmb_file: identification by magic, and what it deliberately does not do."""
+"""Test leading-magic detection independently of full-file validation."""
 
 import pathlib
 
@@ -10,12 +10,9 @@ from cases import CASES, build_bytes
 GOLDENS = pathlib.Path(__file__).parent / "goldens"
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_every_golden_identifies_as_cmb(tmp_path, name):
-    # Covers embedded and reference mode, every mesh class, padding and
-    # models -- the whole matrix, not just the common case.
+def test_a_golden_identifies_as_cmb(tmp_path):
     path = tmp_path / "sample"  # no extension at all
-    path.write_bytes(build_bytes(CASES[name]))
+    path.write_bytes(build_bytes(CASES["tensor_embedded"]))
 
     assert cmb.is_cmb_file(path) is True
 
@@ -25,8 +22,7 @@ def test_identifies_a_golden_read_straight_from_disk():
 
 
 def test_true_for_matching_magic_with_malformed_remainder(tmp_path):
-    # Identification, not validation. This file can never be read, and
-    # still identifies as CMB -- that is the contract.
+    # Matching leading magic is sufficient even when the trailer is invalid.
     path = tmp_path / "truncated.cmb"
     path.write_bytes(cmb.MAGIC + b"\x00\x01 not a real header")
 

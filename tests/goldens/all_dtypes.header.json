@@ -46,72 +46,72 @@
   "models": {
     "m_float32": {
       "array": {
-        "checksum": "sha256:75664b4da1c08de9e8fad52303cc458b3e420edde6591e58761e138cc5e3f163",
+        "checksum": "sha256:45a99655901702d55ab6284a18aed6a5e16677181d16c7a7517b68c2ae2c0c7a",
         "dtype": "float32",
-        "length": 12,
-        "offset": 120,
+        "length": 96,
+        "offset": 288,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}
     },
     "m_float64": {
       "array": {
-        "checksum": "sha256:b0c45303f7f11848cb5e6e5b2af2fb2aecd0b72c28748b88b583ab6bb76df174",
+        "checksum": "sha256:83e13c83f17cec9f8ab1cf1146ae28520e65812acb66b4e41c6945d196fc04fe",
         "dtype": "float64",
-        "length": 24,
+        "length": 192,
         "offset": 96,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}
     },
     "m_int16": {
       "array": {
-        "checksum": "sha256:90c2698921ca9fd02950be353f721888760e33ab5095a21e50f1e4360b6de1a0",
+        "checksum": "sha256:e88624bf274aff4f35798f4bc27027683e9c1d78f132211a3cc4ae5b3decd4e3",
         "dtype": "int16",
-        "length": 6,
-        "offset": 168,
+        "length": 48,
+        "offset": 672,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}
     },
     "m_int32": {
       "array": {
-        "checksum": "sha256:ad5dc1478de06a4c2728ea528bd9361a4b945e92a414bf4d180cedaaeaa5f4cc",
+        "checksum": "sha256:a26f2589bc817e205aed8ed29161a2538dbe40952ed97c98974e90b4b056d4b4",
         "dtype": "int32",
-        "length": 12,
-        "offset": 156,
+        "length": 96,
+        "offset": 576,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}
     },
     "m_int64": {
       "array": {
-        "checksum": "sha256:ab25350e3e65efebe24584461683ecda68725576e825e550038b90e7b1479946",
+        "checksum": "sha256:088889b8071756d3559dc2172e525644f0be09d4b3fb26a697070bddcb805338",
         "dtype": "int64",
-        "length": 24,
-        "offset": 132,
+        "length": 192,
+        "offset": 384,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}
     },
     "m_int8": {
       "array": {
-        "checksum": "sha256:ae4b3280e56e2faf83f414a6e3dabe9d5fbe18976544c05fed121accb85b53fc",
+        "checksum": "sha256:1d64add2a6388367c9bc2d1f1b384b069a6ef382cdaaa89771dd103e28613a25",
         "dtype": "int8",
-        "length": 3,
-        "offset": 174,
+        "length": 24,
+        "offset": 720,
         "shape": [
-          3
+          24
         ]
       },
       "metadata": {}

@@ -40,7 +40,7 @@
   "models": {
     "rho": {
       "array": {
-        "checksum": "sha256:a5ae410aa9d41464d8f47d2049e6b84b5925f7daa8b304f5ad816c6a84a78e6e",
+        "checksum": "sha256:a68de4b5e96a60c8ceb3c7b7ef93461725bdbbff3516b136585a743b5c0ec664",
         "dtype": "float64",
         "length": 24,
         "offset": 60,
