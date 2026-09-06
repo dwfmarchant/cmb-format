@@ -127,8 +127,8 @@ introduced by the later validation pass.
 
 Model entries continue to serialize in caller insertion order. This is
 documented in the Python API only; model names are not sorted and the format
-specification is unchanged. `descriptor_shape` remains as a compatibility
-wrapper because it has three actual callers in `subcrop-mesh`.
+specification is unchanged. `raw_mesh_shape` is the sole public name for the
+raw-array shape helper; sibling-package migration is handled separately.
 
 | Item | Resolution | Revision |
 | --- | --- | --- |

@@ -29,7 +29,6 @@ __all__ = [
     "WRITTEN_FORMAT_VERSION",
     "array_dtype_name",
     "base_mesh_descriptor",
-    "descriptor_shape",
     "padding_as_json",
     "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
@@ -392,15 +391,6 @@ def raw_mesh_shape(mesh_dict: dict) -> tuple[int, int, int] | None:
             return shape_from_mesh_arrays(mesh_class, mesh_dict.get("arrays", {}))
         return None
     return shape_from_mesh_arrays(base.get("mesh_class"), base.get("arrays", {}))
-
-
-def descriptor_shape(mesh_dict: dict) -> tuple[int, int, int] | None:
-    """Compatibility wrapper for :func:`raw_mesh_shape`.
-
-    The name is retained for callers of the original API. It accepts raw
-    writer mesh dictionaries, not parsed array descriptors.
-    """
-    return raw_mesh_shape(mesh_dict)
 
 
 def padding_belongs_to_base_mesh(mesh_dict: dict) -> bool:

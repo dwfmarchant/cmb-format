@@ -446,10 +446,11 @@ def test_writer_rejects_bad_padding_values(padding):
         cmb.build_file_bytes(mesh)
 
 
-def test_raw_mesh_shape_and_compatibility_alias_accept_raw_partial_inputs():
+def test_raw_mesh_shape_accepts_raw_partial_inputs():
     raw = {"mesh_class": "UniformTensorMesh", "arrays": {"shape": np.array([3, 2, 4])}}
     assert cmb.raw_mesh_shape(raw) == (3, 2, 4)
-    assert cmb.descriptor_shape(raw) == (3, 2, 4)
+    raw["mode"] = "embedded"
+    assert cmb.raw_mesh_shape(raw) == (3, 2, 4)
 
 
 def test_raw_mesh_shape_rejects_octree_without_base_mesh():

@@ -100,11 +100,9 @@ unknown fields during validation.
 
 ## 3. Public helper clarity and small cleanup
 
-Add a clearly named `raw_mesh_shape` helper for the raw-array input operation
-currently named `descriptor_shape`. Keep `descriptor_shape` as a documented
-compatibility alias/wrapper with the same behavior, without runtime warnings.
-Use the clearer name internally and update the exact public API test. Explicitly
-document that parsed array descriptors are not inputs to this helper.
+Use `raw_mesh_shape` as the sole public name for the raw-array shape helper
+and update the exact public API test. Explicitly document that parsed array
+descriptors are not inputs to this helper.
 
 Remove the unreachable trailing return in shape_from_mesh_arrays if refactoring
 makes it obsolete. Correct the reference-count error to mention n_cells rather

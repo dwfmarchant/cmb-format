@@ -10,7 +10,6 @@ EXPECTED_PUBLIC_API = [
     "WRITTEN_FORMAT_VERSION",
     "base_mesh_descriptor",
     "build_file_bytes",
-    "descriptor_shape",
     "is_cmb_file",
     "normalize_default_padding",
     "padding_as_json",
