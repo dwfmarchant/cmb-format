@@ -1,243 +1,160 @@
-# Code review findings — 0.1.0 release candidate
+# Review findings — 0.1.0 release candidate
 
-A working document, not part of the format specification. It records issues
-found reviewing `79d4455` on `release-0.1.0`, with current resolutions and
-deferrals noted below. The baseline issue descriptions remain for review
-history; the resolution notes supersede their original implementation claims.
+A working document, not part of the format specification. It records review
+findings for the v0.1.0 release. Items A–E are resolved below; item F remains
+open for release-time follow-up and eventual deletion of this file.
 
-Baseline at the time of review: 179 tests passing, `ruff check` and
-`ruff format --check` clean, goldens regenerating byte-identically, the
-README example running, 82% combined statement/branch coverage.
+Findings from the initial review of `79d4455` have been removed now that they
+are fixed; they remain in git history. What follows is the cloud multi-agent
+review of `2959bb4`, plus the historical items now resolved below.
 
-## Resolution notes for the v1 validation pass
+## Ultrareview of `2959bb4`
 
-The implementation now validates the supported mesh mode/class and exact
-geometry key sets before deriving a cell count. It checks every model in both
-embedded and reference modes, including inferred reference counts; explicit
-`n_cells` rejects booleans, floats, strings, negatives, and other non-integer
-values, while NumPy integer inputs are normalized for JSON. These checks apply
-to writer and reader paths, so the bypasses described in items 1–3 are closed.
+The observations and line references in this section describe the code at
+`2959bb4`, before the cleanup revisions below.
 
-Array descriptors are validated for required fields, supported dtype, scalar
-or one-dimensional non-negative shapes, Python-integer offsets and lengths,
-byte-length agreement, checksum syntax, and file bounds. `read_header` checks
-all known geometry, nested base, and model descriptors before reading the
-uniform shape payload; `read_array` performs the independent structural checks
-for standalone buffers. Checksums for unread payloads remain deferred.
+A multi-agent cloud review of `release-0.1.0` against `main` — 41 files,
++2688/-849. It returned **three findings, all severity "nit", and no
+correctness bugs**, which is a meaningful result for a change of that size.
 
-`raw_mesh_shape` is the clear public name for raw writer-array inputs;
-`descriptor_shape` remains a compatibility wrapper and does not accept parsed
-array descriptors. Octree base-grid dimensions are required to be positive
-powers of two in embedded and reference base meshes, as confirmed by the
-user. Root-local Morton ordering and model insertion order remain unchanged.
-Test-side cell counting stays independent so the golden tests do not merely
-repeat implementation logic. Positive widths and cell sizes, leaf alignment,
-and tiling remain the receiving application's responsibility.
+All three were verified against the code. Each is real, but two are
+mischaracterized in ways that change what is worth doing about them.
 
-Verification after implementation and review:
-
-- 320 tests pass on Python 3.12 and 3.14, including the added validation
-  regressions; combined statement/branch coverage is 90%.
-- An independent audit rejects all 125 malformed-input cases as expected.
-- All 12 binary goldens and their parsed header sidecars remain unchanged.
-- Ruff, formatting, and whitespace checks pass.
-- The source distribution builds a wheel, both pass strict Twine checks,
-  and all 320 tests pass against the installed wheel outside the checkout.
-  The wheel includes `py.typed`.
-
-The central theme: `binary-format.md` specifies a reader-validation contract
-that the reference implementation does not implement. The gaps compound —
-each missing check silently disables a check that *is* implemented, so an
-invalid file is accepted rather than rejected.
-
-## 1. A typo in `mesh_class` can disable model length checks
-
-Both the writer and the reader accept an unrecognized `mesh_class`, though
-[the spec](binary-format.md#validation-a-reader-should-perform) requires it be
-one of the three known values. Because `header_cell_count` (`_codec.py:419`)
-and `_mesh_cell_count` (`_file.py:24`) return `None` for an unknown class, and
-`validate_model_lengths` skips its check when the count is `None`, an unknown
-class turns model validation *off* rather than failing:
-
-```text
-mesh_class="Tensormesh"  (typo), 2x2x2 mesh = 8 cells, model with 5 values
-  build_file_bytes  -> accepted, 1074 bytes
-  read_header       -> accepted, model shape [5]
-
-mesh_class="TensorMesh"  (correct spelling)
-  build_file_bytes  -> ValueError: model 'rho' has 5 values, but the mesh
-                       has 8 cells; models are one value per cell
-```
-
-Not an attacker scenario — a one-character typo produces a silently invalid
-file.
-
-## 2. Array key sets are never checked against the mesh class
-
-The spec requires `arrays` contain "exactly the keys that class requires — no
-more, no fewer". Nothing enforces this. All of the following write and read
-without complaint:
-
-- `OctreeMesh` with `arrays: {"foo": ...}` and no `level` or `position`. The
-  missing `level` also disables the cell-count check, so a 999-value model on
-  that mesh passes both writer and reader.
-- `TensorMesh` missing `origin`.
-- `UniformTensorMesh` with only `shape`, no `origin` and no `cell_size`.
-- Any mesh carrying extra, non-spec array keys.
-
-Tensor classes have their `h_x`/`h_y`/`h_z`/`shape` keys checked, but only
-incidentally, via `descriptor_shape` being evaluated as an argument at
-`_codec.py:292`. `origin` and `cell_size` are never required.
-
-## 3. The writer emits a non-integer `n_cells`; the reader then skips validation
-
-`header_cell_count` gates on `isinstance(n_cells, int)` (`_codec.py:429`). For
-a models-free reference mesh, `resolve_reference_n_cells` returns the caller's
-value unchanged (`_codec.py:336`), so the writer emits it verbatim:
-
-```text
-{"mode": "reference", "n_cells": 3.0}   -> JSON  "n_cells": 3.0
-{"mode": "reference", "n_cells": True}  -> JSON  "n_cells": true
-```
-
-Reading the float-valued count back, `header_cell_count` returns `None`, and a
-model declaring `shape: [999]` against `n_cells: 3.0` is accepted. The boolean
-count instead becomes `1`, because `isinstance(True, int)` is true. It does
-not disable the length check, but accepting a boolean as a count is still
-incorrect.
-
-The spec calls `n_cells` a "required cell count"; it should be required to be
-an integer, and the writer should coerce or reject.
-
-## 4. `read_array` performs none of the required descriptor validation
-
-The spec requires that `length` equal `product(shape) * dtype_byte_width` and
-that `offset + length` not exceed the data section. Neither is checked in
-`read_array` (`_codec.py:348`):
-
-| Malformed descriptor | Actual behaviour | Expected |
+| # | Finding | Verdict |
 | --- | --- | --- |
-| `length` inflated to 1e9 | reads, fails late on the short read | reject up front |
-| `offset: -8` | seeks into the leading magic; only the checksum catches it | reject |
-| `shape` doubled, `length` unchanged | `ValueError: cannot reshape array of size 24` | reject as a format error |
-| `dtype: "float16"` | `KeyError: 'float16'` | `ValueError` |
-| `checksum` or `offset` key missing | `KeyError` | `ValueError` |
+| 1 | Duplicate validation on the write path | Real; negligible in the measured NumPy-array case |
+| 2 | Padding validated twice | Real; the outlier branch is misidentified |
+| 3 | `header_cell_count` is orphaned | Real; provenance misstated |
 
-Checksums do not establish data-section membership: a descriptor with offset
-`-8`, length `8`, dtype `int8`, shape `[8]`, and the checksum of `CELLMODB`
-returns the leading magic as model data. Bounds must be checked independently.
-The error types also leak implementation internals; callers catching
-`ValueError` will not catch these schema errors.
+### 1. Duplicate validation on the write path
 
-In the baseline implementation the `offset + length` bound was not checkable:
-`read_array` receives only `(f, data_start, descriptor)`, and `read_header`
-did not expose the data-section size. The current `read_header` validates
-bounds for every known descriptor; standalone `read_array` intentionally
-keeps its existing signature and therefore validates structure and lengths
-without requiring a CMB trailer.
+**Verdict: real duplication; negligible in the measured NumPy-array case. Optional.**
 
-## 5. A non-object JSON header raises `AttributeError`
+`_assemble` calls `_validate_raw_mesh` (`_file.py:65`), then `serialize_mesh`
+calls it again (`_codec.py:465`). Instrumented, the mesh is validated exactly
+twice per write and models are walked two or three times: once in
+`resolve_reference_n_cells` (reference mode only), once in
+`_check_model_lengths`, and once in `serialize_array`.
 
-`header.get(...)` at `_codec.py:405` assumes the parsed header is an object:
+The review claims writes "pay 2x-3x the validation cost of the actual work"
+and that the cost "scales with model count on the hot write path". Measured on
+a 500,000-cell octree with 10 models, about 42 MB of array payload:
 
 ```text
-header = b"[]"    -> AttributeError: 'list' object has no attribute 'get'
-header = b"null"  -> AttributeError: 'NoneType' object has no attribute 'get'
+full build_file_bytes              19.229 ms   100%
+one _validate_raw_mesh pass         0.003 ms     0.017%
+one _check_model_lengths pass       0.001 ms     0.003%
 ```
 
-Every other corrupt-file path raises `ValueError`; `JSONDecodeError` and
-`UnicodeDecodeError` are both `ValueError` subclasses, so those are fine.
-`tests/test_detect.py:31` asserts `pytest.raises(ValueError)` on a corrupt
-file, so this contract is real and this case breaks it.
+The redundant pass costs 3 microseconds, 0.017% of the write. Validation is
+O(number of arrays); the write is O(bytes), dominated by `to_le_bytes` and
+SHA-256. For existing NumPy arrays, `np.asarray` does not copy, so the
+repeated model walks are close to free; list inputs can allocate and walk
+their contents. The measured NumPy-array case does not support the performance
+argument.
 
-## 6. Writer and reader disagree on `base_mesh` for embedded octrees
+There is also a reason for the duplication that the review did not account
+for: `serialize_mesh` is public API, and its `_validate_raw_mesh` call is what
+makes a direct call safe on its own. The suggested fix — validate once, then
+serialize with validation suppressed — would open a hole in that public entry
+point unless the suppression is internal only.
 
-The spec says `base_mesh` is required for embedded octrees. The writer
-enforces it (`_codec.py:194`); the reader accepts a file with `base_mesh`
-deleted. A file this library refuses to write, it will happily read.
+Resolution: retain the duplicate validation as a clarity tradeoff. The
+measured cost is negligible in the existing NumPy-array case.
 
-## 7. `serialize_array` writes multidimensional geometry arrays
+### 2. Padding validated twice
 
-The spec states that all v1 arrays are at most one-dimensional. Models are
-guarded by `_check_model_lengths`, but geometry arrays are not: a `(3, 1)`
-`origin` serializes as `"shape": [3, 1]` and reads back as `(3, 1)`.
+**Verdict: real redundancy, but the outlier is a different branch.**
 
-A single `ndim > 1` check in `serialize_array` (`_codec.py:91`) closes this
-for every array kind at once.
+The review reports that the embedded-octree branch validates padding twice
+while "reference-with-base" validates once. In fact three of the four branches
+validate twice, and the single outlier is the *parsed* reference branch:
 
-## 8. `descriptor_shape` is public, named for descriptors, and rejects them
+| Branch | `padding_as_json(outer, shape)` | `resolve_shared_padding` |
+| --- | --- | --- |
+| raw octree (`_codec.py:246`) | yes | yes |
+| raw reference + base (`_codec.py:267`) | yes | yes |
+| parsed octree (`_codec.py:830`) | yes | yes |
+| parsed reference + base (`_codec.py:812`) | **no** | yes |
 
-`descriptor_shape` (`_codec.py:187`) accepts only the writer's raw-ndarray
-form. Passed an actual parsed header it fails — with a message that says
-"descriptor":
+So this is a raw-versus-parsed inconsistency, not embedded-versus-reference.
+`resolve_shared_padding` does validate the resolved value against the shape,
+so the extra `padding_as_json` calls are genuinely redundant.
 
-```text
-descriptor_shape(writer mesh dict)    -> (3, 2, 4)
-descriptor_shape(parsed header mesh)  -> ValueError: TensorMesh descriptor
-                                         arrays['h_x'] must be a non-empty
-                                         1D array
-```
+One consequence the review did not note: removing them changes error
+precedence. Before B, an outer padding that both mismatched the nested value
+and exceeded the shape reported the shape error; after B it reports the
+mismatch error. No existing test required the old ordering.
 
-The trap is that its neighbours in the same public API — `base_mesh_descriptor`,
-`padding_belongs_to_base_mesh`, `summarize_models` — all do accept parsed
-headers. Either rename it or make it handle both shapes. Best decided before
-the API is public.
+Resolution: remove the three redundant calls in the raw-octree,
+raw-reference-with-base, and parsed-octree branches. Keep
+`resolve_shared_padding` as the shared agreement and shape check. A combined
+mismatch and overflow now reports the mismatch first, which is accepted.
 
-## 9. Test coverage: the validation paths are the untested ones
+### 3. `header_cell_count` is orphaned
 
-The 179 tests concentrate on goldens and round-trips. Nearly every `raise` in
-the library has no coverage, including rules the spec states explicitly:
+**Verdict: real, and the one worth acting on.**
 
-| Location | Untested rule |
-| --- | --- |
-| `_codec.py:248` | outer and nested `default_padding` values must match |
-| `_codec.py:194` | embedded octree missing `base_mesh` |
-| `_codec.py:339` | models disagree on cell count |
-| `_codec.py:342` | model length mismatches the declared `n_cells` |
-| `_codec.py:331-336` | reference mode with neither `n_cells` nor models |
-| `_codec.py:276` | unsupported mesh mode |
-| `_padding.py` (63%) | booleans, non-finite, non-integer, out-of-int64-range and negative values; the `shape != (3,)` guard |
+`header_cell_count` (`_codec.py:842`) has no callers in `src`, in `tests`, or
+downstream in `subcrop-mesh` and `subcrop-view`. It is listed in
+`_codec.__all__` but not in the package's public API, so `test_public_api.py`
+does not pin it. It is a thin wrapper around
+`_validate_parsed_mesh(f, mesh, data_start, None)`.
 
-All of these were verified by hand to behave correctly. They are simply
-unprotected against regression — which matters most for exactly the rules a
-future contributor would be most likely to "simplify".
+The review calls it "newly defined". It is not: it existed at `79d4455`, where
+`read_header` called it. The validation rework replaced that call with a direct
+`_validate_parsed_mesh` call and orphaned it. The accurate framing is that it
+is a leftover from the rework rather than new surface — the same class of
+issue as the unreachable `return` removed from `shape_from_mesh_arrays`.
 
-## 10. Smaller items
+Resolution: delete it, along with its `_codec.__all__` entry (A,
+`eb732ef`).
 
-- **Dead code (resolved).** The unreachable trailing return in
-  `shape_from_mesh_arrays` was removed.
-- **Specification gap (resolved).** The octree root partition `L = min(nx, ny,
-  nz)` now has an explicit policy: every base-grid dimension is a positive
-  power of two, and both writer and reader enforce it.
-- **Ordering asymmetry.** `serialize_arrays` sorts geometry keys, but
-  `_assemble` iterates models in insertion order, so the same two models in a
-  different dict order produce different bytes (`rho` at offset 96 versus
-  288). Legal per the format, but it makes golden stability depend on caller
-  dict ordering, and `test_writing_is_deterministic` compares the same dict
-  twice, so it would not catch a regression here.
-- **Cell-count logic.** Writer and parsed-header validation now share strict
-  mesh rules; the golden tests retain independent counting by design.
-- **Misleading message (resolved).** `resolve_reference_n_cells` now names
-  `n_cells` directly.
-- **Docstring gap (resolved).** `read_header` documents the uniform shape
-  read and its checksum verification.
-- **Style (resolved).** `tests/generate_goldens.py` imports `io` once.
-- **Undocumented export (resolved).** `INT8_MAX` remains public and used
-  downstream (`subcrop-mesh`, `io/_cmb_convert.py:52`), with a concise maximum
-  int8 value comment near its definition. No README expansion is needed.
+## Decisions and resolution record
 
-## Suggested order
+The initial review listed six historical `raise` statements as untested. Five
+were reachable and are now covered by C: non-octree meshes carrying a base
+mesh on both I/O paths, a missing octree base in `raw_mesh_shape`, a reference
+count mismatch, and the positive-minimum dimension check. The sixth was the
+unsupported-mode branch inside `serialize_mesh`. It was already unreachable,
+including for direct calls, because `_validate_raw_mesh` rejects the mode
+first; A removed that redundant branch while retaining the public entry
+validation.
 
-1. **Findings 1-3** let invalid files through silently and are cheap to fix. A
-   single shared, strict `cell_count(mesh)` that raises on an unknown
-   `mesh_class` or a missing required array, plus an integer coercion for
-   `n_cells`, closes all three and most of the duplication in finding 10.
-2. **Findings 4-7** are the remaining specification-versus-code divergences.
-   They matter more than usual because format v1 is about to freeze.
-3. **Finding 8** is an API naming decision, best made before the API is
-   public.
-4. **Finding 9** should follow whatever changes 1-8 produce, so the new checks
-   land with tests.
+The missing-base check in `raw_mesh_shape` and the `_padding.py:61` positive-
+minimum fallback both predate the validation work at `79d4455`; they were not
+introduced by the later validation pass.
+
+Model entries continue to serialize in caller insertion order. This is
+documented in the Python API only; model names are not sorted and the format
+specification is unchanged. `descriptor_shape` remains as a compatibility
+wrapper because it has three actual callers in `subcrop-mesh`.
+
+| Item | Resolution | Revision |
+| --- | --- | --- |
+| A. Remove unused and unreachable code | Completed | `eb732ef` |
+| B. Consolidate shared padding validation | Completed | `8017445` |
+| C. Cover the remaining meaningful validation gaps | Completed | `06185cd` |
+| D. Document named-model ordering in the Python API | Completed | `432c70d` |
+| E. Correct and close this review record | Completed in this document edit | this document edit |
+| F. Verify the cleanup before release | Open release-time follow-up | — |
+
+## Verification state
+
+At the latest verified code revision, `432c70d`:
+
+- 204 tests pass on Python 3.12.14 and 3.14.7; combined statement/branch
+  coverage is 91%.
+- C covers the five previously unexecuted lines identified by the historical
+  audit, with no prior coverage lost.
+- `ruff check` and `ruff format --check` are clean.
+- The golden suite passes for all 12 binary goldens and parsed header sidecars,
+  byte-identically.
+- No golden files or format-specification changes were made after `2959bb4`.
+- The independent 125-case malformed-input audit passed at `2959bb4`, again
+  after B (`8017445`), and again after D (`432c70d`). This is evidence for
+  those 125 cases, not a claim that every possible malformed input has been
+  tested.
 
 ## What holds up well
 
@@ -245,11 +162,19 @@ Worth not regressing:
 
 - `_padding.py` rejects ragged lists, strings, `None`s, dicts, booleans,
   non-finite floats and out-of-range integers, each with a clear `ValueError`.
-- The double-copy in `normalize_default_padding` (`_padding.py:87`) genuinely
-  resists `setflags(write=True)` on the returned array.
+- The double-copy in `normalize_default_padding` genuinely resists
+  `setflags(write=True)` on the returned array.
 - Big-endian input converts correctly on write; `array_dtype_name` ignores
   byte order and `to_le_bytes` pins the little-endian dtype.
 - `write_file` serializes the JSON header before opening the output, so a
   metadata serialization failure cannot truncate an existing file.
 - Goldens regenerate byte-identically, and the golden suite covers all three
   mesh classes, both modes, nested base meshes, padding and every dtype token.
+
+## F. Verify the cleanup before release
+
+Before tagging, rerun the full verification on the release environment,
+review any newly missed coverage paths, and rerun the independent malformed-
+input audit after any release-time changes. Confirm that the golden bytes and
+sidecars remain unchanged, record the final results, then delete this working
+review file. This item remains open.
