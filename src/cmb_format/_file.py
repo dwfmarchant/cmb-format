@@ -106,6 +106,7 @@ def write_file(
         ``{name: {"metadata": {...}, "array": <ndarray>}}``. In reference mode,
         model lengths determine ``n_cells`` and must match any supplied count.
         If there are no models, the reference descriptor must supply ``n_cells``.
+        Named model entries are serialized in caller insertion order.
     metadata : dict, optional
         File-level metadata.
     """
