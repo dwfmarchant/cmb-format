@@ -1,20 +1,20 @@
 """Assembling a whole CMB file.
 
-The byte layout -- leading magic, data section, JSON header, header length,
-trailing magic -- is defined here and nowhere else. Before this module, each
-consumer assembled it from `serialize_mesh` / `serialize_array` plus its own
-`struct.pack`, which meant the layout lived in as many places as there were
-writers, and every one of them wrote its own `"format_version": 1` literal.
+Layout, in order::
 
-That last part is the reason this exists. A version stamped by each consumer
-is a version this package cannot guarantee: a writer could omit it or set it
-wrong, and nothing would notice until a reader in some other process failed
-much later. `WRITTEN_FORMAT_VERSION` is stamped here, by the package that
-defines what the versions mean.
+    magic          8 bytes, CELLMODB
+    data           every array's bytes, back to back
+    header         UTF-8 JSON
+    header length  uint64, little-endian
+    magic          8 bytes again
 
-Models arrive already normalized -- ``{name: {"metadata": {...}, "array":
-<ndarray>}}``. Turning a consumer's own model type into that shape is the
-consumer's job, the same boundary the rest of this package keeps.
+A reader seeks to the end, reads the last 16 bytes to get the header length,
+then jumps back to the header. Array offsets in the header are relative to
+byte 8, immediately after the leading magic.
+
+``format_version`` is stamped from ``WRITTEN_FORMAT_VERSION``; callers do not
+supply it. Models arrive normalized as
+``{name: {"metadata": {...}, "array": <ndarray>}}``.
 """
 
 import json

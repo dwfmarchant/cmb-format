@@ -1,18 +1,15 @@
 """Conformance against committed reference files.
 
-Every other test in this repository writes with the same code it reads with,
-which means none of them can see a change to the wire format: rename a dtype
-token or reorder a header key on both sides and the round trip still succeeds.
-That is not a hypothetical -- it is the normal way a format drifts.
+Each golden in ``goldens/`` is a complete ``.cmb`` file whose exact bytes are
+the assertion, paired with a ``.header.json`` sidecar holding its parsed
+header. Together they pin the wire: dtype tokens, header key names, byte
+order, offsets and the magic.
 
-The goldens are the fixed point. They were generated once, checked against
-`docs/binary-format.md` by hand, and committed. A change to the format now
-fails here, and the fix is a deliberate act: run `tests/generate_goldens.py`
-and commit the result, where the `.header.json` sidecars make the change
-readable in review.
+Regenerate with ``python tests/generate_goldens.py`` after an intentional
+format change, and commit the result.
 
-Assertions here spell values out literally rather than importing them. An
-assertion written as `MAGIC == MAGIC` proves nothing.
+Values here are spelled out literally rather than imported from the code
+under test.
 """
 
 import io

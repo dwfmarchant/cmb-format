@@ -1,10 +1,9 @@
-"""Regenerate tests/goldens/. Run deliberately, never from a test.
+"""Regenerate tests/goldens/.
 
-    uv run python tests/generate_goldens.py
+    python tests/generate_goldens.py
 
-A golden changing is the signal that the wire format changed. If that was
-intentional, run this and commit the result -- the diff of the `.header.json`
-sidecars is what makes the change reviewable.
+Writes one ``.cmb`` file and one ``.header.json`` sidecar per case in
+``cases.py``. Run after an intentional format change and commit the result.
 """
 
 import json

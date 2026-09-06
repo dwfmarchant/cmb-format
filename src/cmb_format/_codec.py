@@ -1,15 +1,8 @@
 """CMB wire format: array dict <-> bytes on disk.
 
-Implements ``docs/binary-format.md`` -- descriptors, checksums, byte offsets,
-the trailing JSON header -- over plain dicts of numpy arrays. It has no
-concept of a mesh or model *object*; a consumer converts its own types to and
-from array dicts and hands them here.
-
-This module plus ``_padding`` is the whole of CMB. It depends on numpy and
-nothing else, which is what lets ``docs/binary-format.md`` claim the format
-can be implemented "in any language from this document alone" -- the Python
-reference implementation is not entangled with any particular consumer's
-mesh classes.
+Descriptors, checksums, byte offsets and the trailing JSON header, over plain
+dicts of numpy arrays. See ``docs/binary-format.md`` for the format itself
+and ``_file`` for whole-file assembly.
 """
 
 import hashlib
@@ -54,15 +47,8 @@ __all__ = [
 
 MAGIC = b"CELLMODB"
 
-# The wire's version, and the code's, are unrelated. `format_version` counts
-# incompatible changes to the bytes; this package's own version is ordinary
-# semver over its API. A release of cmb-format never implies a format change,
-# and a format change never implies a major release. Which versions a given
-# build handles is declared here rather than inferred from either number.
-#
-# A plain integer counter, not semver: there is no such thing as a patch
-# release of a byte layout. See docs/binary-format.md's Versioning section
-# for what does and does not warrant a bump.
+# An integer counter of incompatible wire changes, unrelated to this
+# package's own version. See docs/binary-format.md's Versioning section.
 WRITTEN_FORMAT_VERSION = 1
 READABLE_FORMAT_VERSIONS = frozenset({1})
 
@@ -267,13 +253,9 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
             "arrays": serialize_arrays(mesh_dict["arrays"], buffer),
         }
     elif mode == "reference":
-        # n_cells is the only cross-file validation, deliberately: a
-        # model read against the wrong mesh renders as obviously
-        # scrambled, so the display already catches the mismatch. No
-        # "mesh_class" either -- docs/binary-format.md deliberately
-        # doesn't give reference mode one: nothing reads it (not even
-        # Model), and base_mesh's presence already identifies the
-        # encouraged OctreeMesh case for free.
+        # Reference mode carries no geometry, so the descriptor is just the
+        # cell count models must match. It has no "mesh_class"; where a base
+        # mesh is present it is attached below.
         header = {"mode": "reference", "n_cells": mesh_dict["n_cells"]}
     else:
         raise NotImplementedError(f"unsupported mesh mode for serialization: {mode!r}")
@@ -281,9 +263,9 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
     base = base_mesh_descriptor(mesh_dict)
     has_shared_padding = padding_belongs_to_base_mesh(mesh_dict)
     if has_shared_padding:
-        # Octree/base pairs have one setting, canonically stored below on the
-        # base descriptor. Outer-only values are accepted as a compatibility
-        # fallback and are moved to that canonical location.
+        # An octree and its base mesh share one padding setting, stored on
+        # the base descriptor. A value found on the outer descriptor instead
+        # is moved there.
         shared_padding = resolve_shared_padding(
             mesh_dict.get("default_padding"),
             base.get("default_padding"),

@@ -1,8 +1,7 @@
-"""Codec behaviour: the error paths a reader has to get right.
+"""Codec behaviour on malformed input.
 
-The goldens pin what a *valid* file looks like. These pin what happens to an
-invalid one -- a reader that accepts corruption silently is worse than one
-that rejects a good file loudly.
+Bad magic, truncation, a header length past end of file, an unreadable
+format version, checksum mismatch, and dtypes the format cannot express.
 """
 
 import io
@@ -14,6 +13,7 @@ import pytest
 
 import cmb_format as cmb
 from cases import CASES, build_bytes
+from cmb_format._codec import array_dtype_name
 
 VALID = build_bytes(CASES["tensor_with_models"])
 
@@ -102,7 +102,7 @@ def test_detects_array_data_shorter_than_declared():
 
 def test_rejects_an_array_dtype_the_format_cannot_express():
     with pytest.raises(TypeError, match="unsupported array dtype"):
-        cmb.array_dtype_name(np.array([1 + 2j]))
+        array_dtype_name(np.array([1 + 2j]))
 
 
 @pytest.mark.parametrize("dtype_name", sorted(cmb.DTYPE_TO_NUMPY))

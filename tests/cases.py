@@ -1,13 +1,12 @@
 """The golden matrix: one case per shape the specification allows.
 
-Both `generate_goldens.py` and `test_goldens.py` build from these, so a
-golden and the test that checks it can never drift apart -- and regenerating
-is a deliberate act (run the generator) rather than something a test does
-quietly on failure.
+Covers embedded and reference mode, all three mesh classes, nested base
+meshes, padding, multiple models, and one model per supported dtype.
+``generate_goldens.py`` and ``test_goldens.py`` both build from these.
 
-Arrays are chosen to be small, exactly representable in binary floating
-point, and distinguishable from each other, so a golden's bytes are readable
-in a hex dump when something goes wrong.
+Arrays are small, exactly representable in binary floating point, and
+distinguishable from each other, so a golden's bytes are readable in a hex
+dump.
 """
 
 import numpy as np
