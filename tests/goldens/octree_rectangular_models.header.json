@@ -12,7 +12,7 @@
         ]
       },
       "position": {
-        "checksum": "sha256:409ee193ee5d64856a75aaccf6bb9fc8edd0d4ab6ad383f08bd6f58fe2a40be3",
+        "checksum": "sha256:605e2380820001a8a6c97b40ad562557dfb114ac48f2bddf9c8334d8887fd6f6",
         "dtype": "int32",
         "length": 60,
         "offset": 15,
@@ -42,7 +42,7 @@
           ]
         },
         "shape": {
-          "checksum": "sha256:2afc299ae2c44dbad6b479482d2d7467d7defd66041659ed28ca5e8d83236e82",
+          "checksum": "sha256:7e89dfd8b4150128e1f6bdb6b2dc98381051fd983953dadb62d98e4a885823ea",
           "dtype": "int32",
           "length": 12,
           "offset": 123,
@@ -51,26 +51,16 @@
           ]
         }
       },
-      "default_padding": [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1
-      ],
       "mesh_class": "UniformTensorMesh"
     },
     "mesh_class": "OctreeMesh",
     "mode": "embedded"
   },
-  "metadata": {
-    "note": "octree"
-  },
+  "metadata": {},
   "models": {
     "rho": {
       "array": {
-        "checksum": "sha256:ab91ab67c7ff19143b2986c8ca58a429e24a80109ceb7aaeb2df72bf572fa2e6",
+        "checksum": "sha256:b673888e234a4156b7f56f7c9e67bdaea2b801b0ff2b2a6ab36fb1ba0f5b4eb2",
         "dtype": "float64",
         "length": 120,
         "offset": 135,

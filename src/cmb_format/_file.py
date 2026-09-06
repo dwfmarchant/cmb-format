@@ -45,15 +45,14 @@ def _mesh_cell_count(mesh: dict) -> int | None:
 def _check_model_lengths(mesh: dict, models: dict) -> None:
     """Raise if any model is not one value per cell."""
     n_cells = _mesh_cell_count(mesh)
-    if n_cells is None:
-        return
     for name, entry in models.items():
         arr = np.asarray(entry["array"])
         if arr.ndim != 1:
-            # Dimensionality is a separate error, reported by the caller.
-            continue
+            raise ValueError(
+                f"model {name!r} must be a 1D array, got shape {arr.shape}"
+            )
         length = arr.shape[0]
-        if length != n_cells:
+        if n_cells is not None and length != n_cells:
             raise ValueError(
                 f"model {name!r} has {length} values, but the mesh has "
                 f"{n_cells} cells; models are one value per cell"

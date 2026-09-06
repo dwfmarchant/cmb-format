@@ -207,11 +207,36 @@ file. It is required for embedded octrees and optional for references.
 
 ### Cell numbering / ordering
 
-Per-cell arrays (`level`/`position` and every model array) use the same cell order as
-everywhere else in this ecosystem — index 0 is the bottom-south-west
-cell, advancing `x` fastest, then `y`, then `z` slowest. This format does
-not re-derive or re-check that ordering; it stores whatever order the
-writer's own cell indexing already uses.
+Coordinates increase eastward (`x`), northward (`y`), and upward (`z`).
+`origin` is the bottom-south-west corner of the mesh.
+
+**Tensor meshes:** `TensorMesh` and `UniformTensorMesh` number cells from
+zero, advancing `x` fastest, then `y`, then `z`. For cell coordinates
+`(i, j, k)` and axis cell counts `(nx, ny, nz)`, the linear index is
+`i + nx * (j + ny * k)`. Axis-width arrays run in increasing coordinate order.
+
+**Octree position encoding:** each `position` is the same x-fastest linear
+index into the finest-resolution `base_mesh` grid. It identifies the base
+cell at the leaf's bottom-south-west corner. A leaf at `level = 0` has the
+base cell size; at level `l` it spans `2**l` base cells along each axis.
+Position encoding is independent of the order in which leaves are stored.
+
+**Octree leaf order:** `level` and `position` use **root-local Morton order**.
+For base-grid shape `(nx, ny, nz)`, let `L = min(nx, ny, nz)`:
+
+1. Partition the base grid into roots of `L` base cells along each axis.
+2. Visit roots in x-fastest order, then y, then z, starting at the origin.
+3. Within each root, recursively visit children in ascending order of
+   `x_bit + 2*y_bit + 4*z_bit`. Each bit selects the lower (`0`) or upper
+   (`1`) half along its axis. Visit all descendants of a child before
+   advancing to the next child, emitting a cell when a leaf is reached.
+
+Root-local traversal can differ from a single global Morton sort on a
+rectangular base grid. All octree model arrays use the same leaf order as
+`level` and `position`, including in reference-mode files.
+
+The Python I/O routines preserve supplied array order. Callers must supply
+geometry and model values in the appropriate CMB order.
 
 ### Models
 

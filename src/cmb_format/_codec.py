@@ -378,8 +378,8 @@ def read_header(f) -> tuple[dict, int]:
     Checks the minimum file size, trailing magic, header-length bounds,
     format version, and that every model is one value per cell. Does not
     otherwise validate the header schema, and reads no array data beyond the
-    twelve-byte ``shape`` array a ``UniformTensorMesh`` needs for its cell
-    count.
+    three-element ``shape`` array a ``UniformTensorMesh`` needs for its cell
+    count (12 bytes for int32 or 24 bytes for int64).
 
     Returns ``(header, data_start)``, where ``data_start`` is byte 8 and array
     offsets are relative to it. Changes the file position.
@@ -419,10 +419,10 @@ def read_header(f) -> tuple[dict, int]:
 def header_cell_count(f, mesh: dict, data_start: int) -> int | None:
     """Cells the mesh descriptor of a parsed header describes.
 
-    Reads the ``shape`` array for ``UniformTensorMesh`` -- twelve bytes at a
-    known offset -- since that class states its cell counts as values rather
-    than array lengths. Returns None when the descriptor is too incomplete to
-    say.
+    Reads the three-element ``shape`` array for ``UniformTensorMesh`` since
+    that class states its cell counts as values rather than array lengths.
+    This reads 12 bytes for int32 or 24 bytes for int64. Returns None when the
+    descriptor is too incomplete to determine the count.
     """
     if mesh.get("mode") == "reference":
         n_cells = mesh.get("n_cells")
@@ -450,14 +450,14 @@ def header_cell_count(f, mesh: dict, data_start: int) -> int | None:
 
 def validate_model_lengths(models: dict, n_cells: int | None) -> None:
     """Raise if any model array descriptor is not one value per cell."""
-    if n_cells is None or not isinstance(models, dict):
+    if not isinstance(models, dict):
         return
     for name, entry in models.items():
-        shape = (entry or {}).get("array", {}).get("shape")
-        if shape is None or len(shape) != 1:
-            # Dimensionality is checked separately.
-            continue
-        if list(shape) != [n_cells]:
+        descriptor = entry.get("array") if isinstance(entry, dict) else None
+        shape = descriptor.get("shape") if isinstance(descriptor, dict) else None
+        if not isinstance(shape, list) or len(shape) != 1:
+            raise ValueError(f"model {name!r} must be a 1D array, got shape {shape!r}")
+        if n_cells is not None and shape != [n_cells]:
             raise ValueError(
                 f"model {name!r} has shape {list(shape)}, but the mesh has "
                 f"{n_cells} cells; models are one value per cell"

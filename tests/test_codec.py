@@ -198,3 +198,63 @@ def test_read_rejects_a_model_that_is_not_one_value_per_cell(case_name):
 def test_reference_mode_model_length_is_checked_too():
     with pytest.raises(ValueError, match="one value per cell"):
         cmb.read_header(_reader(_forge_model_shape("reference_models_only", [99])))
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "tensor_with_models",
+        "uniform_padding_models",
+        "octree_base_padding_models",
+        "reference_models_only",
+    ],
+)
+@pytest.mark.parametrize("ndim", [0, 2], ids=["scalar", "matrix"])
+@pytest.mark.parametrize("writer", ["write_file", "build_file_bytes"])
+def test_writers_reject_non_1d_models(tmp_path, case_name, ndim, writer):
+    case = CASES[case_name]
+    values = next(iter(case["models"].values()))["array"]
+    invalid = np.array(1.0) if ndim == 0 else values.reshape(1, -1)
+    models = {"rho": {"array": invalid}}
+    with pytest.raises(ValueError, match="must be a 1D array"):
+        if writer == "write_file":
+            cmb.write_file(tmp_path / "bad.cmb", case["mesh"], models)
+        else:
+            cmb.build_file_bytes(case["mesh"], models)
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "tensor_with_models",
+        "uniform_padding_models",
+        "octree_base_padding_models",
+        "reference_models_only",
+    ],
+)
+@pytest.mark.parametrize("ndim", [0, 2], ids=["scalar", "matrix"])
+def test_read_rejects_non_1d_models(case_name, ndim):
+    values = next(iter(CASES[case_name]["models"].values()))["array"]
+    # The matrix declares the correct total number of values but the wrong rank.
+    shape = [] if ndim == 0 else [1, len(values)]
+    with pytest.raises(ValueError, match="must be a 1D array"):
+        cmb.read_header(_reader(_forge_model_shape(case_name, shape)))
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64])
+def test_uniform_shape_integer_widths_round_trip(dtype):
+    original = CASES["uniform_padding_models"]
+    mesh = {
+        **original["mesh"],
+        "arrays": {
+            **original["mesh"]["arrays"],
+            "shape": original["mesh"]["arrays"]["shape"].astype(dtype),
+        },
+    }
+    with _reader(cmb.build_file_bytes(mesh, original["models"])) as f:
+        header, start = cmb.read_header(f)
+        shape = cmb.read_array(f, start, header["mesh"]["arrays"]["shape"])
+        rho = cmb.read_array(f, start, header["models"]["rho"]["array"])
+    assert shape.dtype == np.dtype(dtype)
+    np.testing.assert_array_equal(shape, mesh["arrays"]["shape"])
+    np.testing.assert_array_equal(rho, original["models"]["rho"]["array"])
