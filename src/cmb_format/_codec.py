@@ -1,8 +1,6 @@
-"""CMB wire format: array dict <-> bytes on disk.
+"""Encode arrays and descriptors, and read CMB headers and array data.
 
-Descriptors, checksums, byte offsets and the trailing JSON header, over plain
-dicts of numpy arrays. See ``docs/binary-format.md`` for the format itself
-and ``_file`` for whole-file assembly.
+See ``docs/binary-format.md`` for the format and ``_file`` for file assembly.
 """
 
 import hashlib
@@ -89,6 +87,12 @@ def sha256_hex(raw: bytes) -> str:
 
 
 def serialize_array(arr: ArrayLike, buffer: bytearray) -> dict:
+    """Append an array's little-endian bytes to buffer and return its descriptor.
+
+    Accepts array-like input with a supported dtype. Mutates the supplied
+    bytearray; the descriptor's offset is the buffer length before appending.
+    The descriptor records dtype, shape, byte length, and a SHA-256 checksum.
+    """
     arr = np.asarray(arr)
     dtype_name = array_dtype_name(arr)
     raw = to_le_bytes(arr, dtype_name)
@@ -153,7 +157,11 @@ def shape_from_mesh_arrays(
 
 
 def base_mesh_descriptor(mesh_dict: dict) -> dict | None:
-    """Validate and return a present nested base-mesh descriptor."""
+    """Return a nested base-mesh descriptor, or None when absent.
+
+    Checks that a supplied value is a mapping containing ``mesh_class``;
+    it does not validate the full geometry schema.
+    """
     if "base_mesh" not in mesh_dict:
         return None
     base = mesh_dict["base_mesh"]
@@ -222,13 +230,11 @@ def resolve_shared_padding(
     nested: ArrayLike | None,
     shape: tuple[int, int, int] | None = None,
 ) -> list[int] | None:
-    """Resolve an OctreeMesh/base_mesh padding pair to one JSON list.
+    """Resolve outer and nested padding to one JSON list.
 
-    The nested ``UniformTensorMesh`` owns this setting in the canonical
-    representation. An outer value is accepted for compatibility with older
-    or foreign descriptors only when the nested value is absent, and matching
-    duplicate values are accepted. A supplied shape validates the resolved
-    value against the base grid's axis cell counts.
+    The nested base mesh owns the canonical setting. Use its value when
+    present, or the outer value as a fallback. If both are present, their
+    normalized values must match. An optional shape bounds each opposing pair.
     """
     outer_padding = normalize_default_padding(outer)
     nested_padding = normalize_default_padding(nested)
@@ -245,6 +251,15 @@ def resolve_shared_padding(
 
 
 def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
+    """Append a mesh's geometry arrays to buffer and return its descriptor.
+
+    Embedded input contains raw arrays; the result replaces them with array
+    descriptors. Reference input supplies ``n_cells`` and may include a base
+    mesh. Base-mesh arrays are appended to the same buffer.
+
+    Normalizes padding and checks it against available axis shapes. This
+    routine does not perform full geometric validation or reorder cells.
+    """
     mode = mesh_dict.get("mode")
     if mode == "embedded":
         header = {
@@ -253,9 +268,7 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
             "arrays": serialize_arrays(mesh_dict["arrays"], buffer),
         }
     elif mode == "reference":
-        # Reference mode carries no geometry, so the descriptor is just the
-        # cell count models must match. It has no "mesh_class"; where a base
-        # mesh is present it is attached below.
+        # Reference mode omits mesh_class; optional base geometry is added below.
         header = {"mode": "reference", "n_cells": mesh_dict["n_cells"]}
     else:
         raise NotImplementedError(f"unsupported mesh mode for serialization: {mode!r}")
@@ -297,18 +310,11 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
 
 
 def resolve_reference_n_cells(mesh_n_cells: int | None, normalized_models: dict) -> int:
-    """Resolve the `n_cells` a reference-mode file actually gets written with.
+    """Determine a reference-mode file's cell count.
 
-    `n_cells` is nothing but the length of the model vectors it's meant
-    to validate (`docs/binary-format.md`'s `models` schema: one 1D array
-    of length `n_cells` per model) -- so when at least one model is being
-    written, its own length is authoritative, and `mesh_n_cells` (only
-    available when the caller supplied a mesh independently -- see
-    `write_cmb`) is just a cross-check that it wasn't paired with the
-    wrong models. `mesh_n_cells` is used directly only when there's no
-    model to check it against (a reference-mode file with zero models
-    is unusual, but the format allows it) -- if neither is available,
-    there's nothing to derive `n_cells` from at all.
+    All model arrays must be one-dimensional and have equal lengths. Their
+    length must match ``mesh_n_cells`` when supplied. Without models, use
+    ``mesh_n_cells``; raise ValueError if neither source is available.
     """
     lengths = {}
     for name, entry in normalized_models.items():
@@ -338,6 +344,13 @@ def resolve_reference_n_cells(mesh_n_cells: int | None, normalized_models: dict)
 
 
 def read_array(f, data_start: int, descriptor: dict) -> NDArray:
+    """Read an array from an open binary file and verify its checksum.
+
+    Seeks to ``data_start + descriptor["offset"]`` and reads the descriptor's
+    byte length. Raises ValueError for a short read or checksum mismatch.
+    Returns a read-only NumPy array with the recorded dtype and shape.
+    The file position changes; this function does not validate the full header.
+    """
     f.seek(data_start + descriptor["offset"])
     raw = f.read(descriptor["length"])
     if len(raw) != descriptor["length"]:
@@ -349,17 +362,23 @@ def read_array(f, data_start: int, descriptor: dict) -> NDArray:
 
 
 def read_arrays(f, data_start: int, descriptors: dict) -> dict:
+    """Read a mapping of named array descriptors from an open binary file.
+
+    Returns a dictionary of NumPy arrays. Each read uses `read_array`, including
+    its offset handling and checksum verification, and changes the file position.
+    """
     return {name: read_array(f, data_start, d) for name, d in descriptors.items()}
 
 
 def read_header(f) -> tuple[dict, int]:
-    """Parse an CMB file's trailing JSON header from an already-open file.
+    """Read a CMB file's trailing JSON header from an open binary file.
 
-    Reads only the trailer and header bytes -- nothing in the data
-    section, so this is cheap regardless of how much array data the
-    file holds. Returns `(header, data_start)`; `data_start` is the
-    byte offset every array `offset` in the header is relative to (see
-    `docs/binary-format.md`'s File layout).
+    Checks the minimum file size, trailing magic, header-length bounds, and
+    format version. Parses the JSON without validating the full header schema
+    or reading array data.
+
+    Returns ``(header, data_start)``, where ``data_start`` is byte 8 and array
+    offsets are relative to it. Changes the file position.
     """
     f.seek(0, os.SEEK_END)
     total_length = f.tell()
@@ -390,11 +409,10 @@ def read_header(f) -> tuple[dict, int]:
 
 
 def summarize_models(header: dict) -> dict:
-    """Build `list_cmb_models`'s return shape from an already-parsed header.
+    """Return each model's metadata, dtype, and shape from a parsed header.
 
-    Pure dict transform, no I/O -- split out so `read_cmb_contents` can
-    reuse it on a header it has already parsed itself, instead of
-    parsing the header twice.
+    Returns a dictionary keyed by model name. Does not read array data or
+    verify checksums.
     """
     return {
         name: {

@@ -1,8 +1,4 @@
-"""Codec behaviour on malformed input.
-
-Bad magic, truncation, a header length past end of file, an unreadable
-format version, checksum mismatch, and dtypes the format cannot express.
-"""
+"""Test array encoding, malformed-input handling, and header compatibility."""
 
 import io
 import json
@@ -42,8 +38,7 @@ def test_rejects_a_header_length_larger_than_the_file():
 
 
 def test_rejects_an_unsupported_format_version():
-    # Hand-assembled: the package stamps WRITTEN_FORMAT_VERSION by design,
-    # so a file claiming a version it does not write has to be forged.
+    # Replace the header because the writer always stamps WRITTEN_FORMAT_VERSION.
     raw = bytearray(build_bytes(CASES["tensor_embedded"]))
     (length,) = struct.unpack("<Q", raw[-16:-8])
     header = json.loads(raw[len(raw) - 16 - length : -16])
@@ -65,9 +60,8 @@ def test_version_constants_are_self_consistent():
     assert cmb.WRITTEN_FORMAT_VERSION in cmb.READABLE_FORMAT_VERSIONS
 
 
-def test_written_files_carry_the_packages_version(tmp_path):
-    # The point of write_file owning the stamp: a consumer cannot forget it
-    # or drift from it, because it never supplies it.
+def test_written_files_carry_the_written_format_version(tmp_path):
+    # The writer supplies the format version without caller input.
     path = tmp_path / "stamped.cmb"
     cmb.write_file(path, mesh=CASES["tensor_embedded"]["mesh"])
     with open(path, "rb") as f:
@@ -125,9 +119,7 @@ def test_padding_must_fit_the_mesh_it_describes():
 
 
 def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
-    # The spec's forward-compatibility rule, exercised. If this ever fails,
-    # every future optional field becomes a breaking change and the format
-    # can only be replaced, never grown.
+    # Optional fields must not prevent reading known geometry and model data.
     raw = bytearray(build_bytes(CASES["octree_base_padding_models"]))
     (length,) = struct.unpack("<Q", raw[-16:-8])
     header = json.loads(raw[len(raw) - 16 - length : -16])
@@ -158,8 +150,7 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
         cmb.read_arrays(f, data_start, parsed["mesh"]["base_mesh"]["arrays"])
         for model in parsed["models"].values():
             cmb.read_array(f, data_start, model["array"])
-    # Known fields still parse, and the unknown ones rode along untouched
-    # rather than being rejected or silently dropped.
+    # Parsing preserves unknown fields while known fields remain usable.
     assert set(arrays) == {"level", "position"}
     assert parsed["mesh"]["mesh_class"] == "OctreeMesh"
     assert parsed["mesh"]["base_mesh"]["default_padding"] == [1, 1, 1, 1, 1, 1]

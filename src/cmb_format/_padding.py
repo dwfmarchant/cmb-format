@@ -1,10 +1,7 @@
-"""Validation and normalization for the six-value visualization padding.
+"""Normalize and validate optional visualization padding.
 
-Padding is part of the CMB format -- a file's header may carry
-``default_padding`` -- so its canonical representation and validation live
-here rather than in any consumer.
-
-Always in canonical order ``[west, east, south, north, bottom, top]``.
+The canonical order is ``[west, east, south, north, bottom, top]``, as defined
+in ``docs/binary-format.md``.
 """
 
 from numbers import Integral, Real
@@ -27,7 +24,11 @@ def normalize_integer_array(
     minimum: int | None = None,
     value_description: str = "scalar integers",
 ) -> NDArray[np.integer]:
-    """Normalize scalar integer values with an optional shape/range check."""
+    """Normalize integral numeric values to int64 with optional shape and bounds.
+
+    Accepts integers and finite, integer-valued real numbers. Rejects booleans
+    and values outside the int64 range.
+    """
     try:
         values_arr = np.asarray(values, dtype=object)
     except (TypeError, ValueError) as exc:
@@ -66,11 +67,10 @@ def normalize_integer_array(
 def normalize_default_padding(
     default_padding: ArrayLike | None,
 ) -> NDArray[np.integer] | None:
-    """Normalize padding to a read-only int64 array in canonical order.
+    """Return read-only int64 padding in canonical order, or None when absent.
 
-    Canonical order is ``[west, east, south, north, bottom, top]``, defined
-    by ``docs/binary-format.md`` -- the format's own convention, not any
-    consumer's.
+    Requires six non-negative integer values ordered as
+    ``[west, east, south, north, bottom, top]``.
     """
     if default_padding is None:
         return None

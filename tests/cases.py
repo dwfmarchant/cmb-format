@@ -1,12 +1,8 @@
-"""The golden matrix: one case per shape the specification allows.
+"""Shared inputs for golden-file generation and serialization tests.
 
-Covers embedded and reference mode, all three mesh classes, nested base
-meshes, padding, multiple models, and one model per supported dtype.
-``generate_goldens.py`` and ``test_goldens.py`` both build from these.
-
-Arrays are small, exactly representable in binary floating point, and
-distinguishable from each other, so a golden's bytes are readable in a hex
-dump.
+Includes embedded and reference modes, all three mesh classes, nested base
+meshes, padding, multiple models, and the supported dtypes. Small arrays
+with exactly representable values make the binary fixtures easier to inspect.
 """
 
 import numpy as np
@@ -86,9 +82,7 @@ _SUS = {
     "array": np.array([0.0, 0.5, 1.5]),
 }
 
-# Every dtype the format defines a token for. This case is what pins those
-# token strings -- a rename of them is a wire change that round-tripping
-# cannot see, because the writer and reader share the same lookup table.
+# Exercise each dtype; test_goldens.py checks tokens against a literal set.
 _ALL_DTYPES = {
     f"m_{name}": {"metadata": {}, "array": np.arange(3, dtype=np.dtype(numpy_code))}
     for name, numpy_code in cmb.DTYPE_TO_NUMPY.items()
@@ -138,11 +132,5 @@ CASES = {
 
 
 def build_bytes(case):
-    """Assemble a case into the exact bytes of a `.cmb` file.
-
-    Delegates to `cmb_format.build_file_bytes` rather than reimplementing
-    the layout. That matters: a second implementation here would keep
-    producing the old bytes after a real layout change in the package, and
-    the goldens would match while the format had moved underneath them.
-    """
+    """Serialize a case using the package writer exercised by the golden tests."""
     return cmb.build_file_bytes(case["mesh"], case["models"], case["metadata"])

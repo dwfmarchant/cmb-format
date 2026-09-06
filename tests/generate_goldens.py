@@ -1,9 +1,8 @@
-"""Regenerate tests/goldens/.
+"""Regenerate binary fixtures and parsed header sidecars.
 
-    python tests/generate_goldens.py
-
-Writes one ``.cmb`` file and one ``.header.json`` sidecar per case in
-``cases.py``. Run after an intentional format change and commit the result.
+Run ``python tests/generate_goldens.py`` after an intentional fixture or
+serialization update. Review the resulting binary and sidecar diffs before
+committing; changed bytes do not necessarily imply a format change.
 """
 
 import json

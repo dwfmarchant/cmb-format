@@ -1,16 +1,8 @@
-"""CMB (Cell Model Binary): a file format for cell-based meshes and models.
+"""Python I/O for Cell Model Binary (CMB) meshes and models.
 
-A CMB file holds one mesh's geometry plus any number of named models — arrays
-of per-cell values — with arbitrary metadata at both the file and the model
-level. Arrays are stored raw and uncompressed; a JSON header at the end of
-the file gives each one's dtype, shape, byte offset and checksum, so a reader
-can seek straight to a single array without touching the rest.
-
-``docs/binary-format.md`` is the normative specification.
-
-Everything here works in *array dicts*: plain dicts of numpy arrays, keyed
-the way the specification's descriptors are. There is no mesh or model
-object. A consumer converts its own classes to and from array dicts.
+The API accepts dictionaries of NumPy arrays. Files can contain mesh
+geometry and named per-cell models, or models for a separately stored mesh.
+See ``docs/binary-format.md`` for the normative format specification.
 """
 
 from cmb_format._codec import (

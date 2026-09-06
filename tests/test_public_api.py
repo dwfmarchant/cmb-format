@@ -1,9 +1,4 @@
-"""The public surface, pinned.
-
-Everything real lives in private modules, so what is public is decided
-entirely by what ``__init__`` re-exports. After the first tag every name here
-is a compatibility promise.
-"""
+"""Check the package exports against the expected public API."""
 
 import cmb_format
 
