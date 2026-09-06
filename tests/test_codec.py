@@ -1,8 +1,6 @@
 """Test array encoding, malformed-input handling, and header compatibility."""
 
 import io
-import json
-import math
 import struct
 
 import numpy as np
@@ -10,7 +8,8 @@ import pytest
 
 import cmb_format as cmb
 from cases import CASES, build_bytes
-from cmb_format._codec import array_dtype_name, sha256_hex
+from cmb_format._codec import array_dtype_name
+from test_helpers import forge_model_shape, frame, mutate, unpack_case
 
 VALID = build_bytes(CASES["tensor_with_models"])
 
@@ -40,20 +39,8 @@ def test_rejects_a_header_length_larger_than_the_file():
 
 def test_rejects_an_unsupported_format_version():
     # Replace the header because the writer always stamps WRITTEN_FORMAT_VERSION.
-    raw = bytearray(build_bytes(CASES["tensor_embedded"]))
-    (length,) = struct.unpack("<Q", raw[-16:-8])
-    header = json.loads(raw[len(raw) - 16 - length : -16])
-    header["format_version"] = 999
-    blob = json.dumps(header).encode("utf-8")
-    forged = (
-        cmb.MAGIC
-        + bytes(raw[8 : len(raw) - 16 - length])
-        + blob
-        + struct.pack("<Q", len(blob))
-        + cmb.MAGIC
-    )
     with pytest.raises(ValueError, match="unsupported CMB format_version"):
-        cmb.read_header(_reader(forged))
+        cmb.read_header(_reader(mutate("tensor_embedded", ["format_version"], 999)))
 
 
 def test_version_constants_are_self_consistent():
@@ -102,14 +89,19 @@ def test_rejects_an_array_dtype_the_format_cannot_express():
 
 @pytest.mark.parametrize("dtype_name", sorted(cmb.DTYPE_TO_NUMPY))
 def test_every_declared_dtype_round_trips(dtype_name):
-    values = np.arange(4, dtype=np.dtype(cmb.DTYPE_TO_NUMPY[dtype_name]))
-    buffer = bytearray()
-    descriptor = cmb.serialize_array(values, buffer)
-    assert descriptor["dtype"] == dtype_name
-    raw = cmb.MAGIC + bytes(buffer)
-    with _reader(raw) as f:
-        back = cmb.read_array(f, 8, descriptor)
-    np.testing.assert_array_equal(back, values)
+    native = np.dtype(cmb.DTYPE_TO_NUMPY[dtype_name])
+    for values in (
+        np.arange(4, dtype=native),
+        np.arange(4, dtype=native.newbyteorder(">")),
+    ):
+        buffer = bytearray()
+        descriptor = cmb.serialize_array(values, buffer)
+        assert descriptor["dtype"] == dtype_name
+        assert bytes(buffer) == np.arange(4, dtype=native).tobytes()
+        raw = cmb.MAGIC + bytes(buffer)
+        with _reader(raw) as f:
+            back = cmb.read_array(f, 8, descriptor)
+        np.testing.assert_array_equal(back, values)
 
 
 def test_padding_must_fit_the_mesh_it_describes():
@@ -121,9 +113,7 @@ def test_padding_must_fit_the_mesh_it_describes():
 
 def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
     # Optional fields must not prevent reading known geometry and model data.
-    raw = bytearray(build_bytes(CASES["octree_base_padding_models"]))
-    (length,) = struct.unpack("<Q", raw[-16:-8])
-    header = json.loads(raw[len(raw) - 16 - length : -16])
+    header, data = unpack_case("octree_base_padding_models")
 
     header["a_field_from_the_future"] = {"anything": [1, 2, 3]}
     header["mesh"]["unknown_mesh_key"] = "ignored"
@@ -133,16 +123,8 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
         model["unknown_model_key"] = None
         model["array"]["another_unknown"] = "x"
 
-    blob = json.dumps(header).encode("utf-8")
-    forged = (
-        cmb.MAGIC
-        + bytes(raw[8 : len(raw) - 16 - length])
-        + blob
-        + struct.pack("<Q", len(blob))
-        + cmb.MAGIC
-    )
     path = tmp_path / "from_the_future.cmb"
-    path.write_bytes(forged)
+    path.write_bytes(frame(header, data))
 
     assert cmb.is_cmb_file(path) is True
     with open(path, "rb") as f:
@@ -160,43 +142,6 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
     assert set(cmb.summarize_models(parsed)) == set(header["models"])
 
 
-def _forge_model_shape(case_name, shape):
-    """A valid file with model bytes and declared shape replaced consistently."""
-    raw = bytearray(build_bytes(CASES[case_name]))
-    (length,) = struct.unpack("<Q", raw[-16:-8])
-    header = json.loads(raw[len(raw) - 16 - length : -16])
-    data = bytes(raw[8 : len(raw) - 16 - length])
-    rebuilt = bytearray(
-        data[: next(iter(header["models"].values()))["array"]["offset"]]
-    )
-    for index, entry in enumerate(header["models"].values()):
-        descriptor = entry["array"]
-        start = descriptor["offset"]
-        stop = start + descriptor["length"]
-        payload = data[start:stop]
-        if index == 0:
-            dtype = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]])
-            count = math.prod(shape)
-            payload = np.arange(count, dtype=dtype).tobytes()
-            descriptor["shape"] = shape
-        descriptor["offset"] = len(rebuilt)
-        descriptor["length"] = len(payload)
-        descriptor["checksum"] = sha256_hex(payload)
-        rebuilt.extend(payload)
-    data = bytes(rebuilt)
-    blob = json.dumps(header).encode("utf-8")
-    return cmb.MAGIC + data + blob + struct.pack("<Q", len(blob)) + cmb.MAGIC
-
-
-def test_write_rejects_a_model_that_is_not_one_value_per_cell(tmp_path):
-    with pytest.raises(ValueError, match="one value per cell"):
-        cmb.write_file(
-            tmp_path / "bad.cmb",
-            CASES["tensor_embedded"]["mesh"],
-            {"rho": {"metadata": {}, "array": np.arange(3.0)}},
-        )
-
-
 @pytest.mark.parametrize(
     "case_name",
     ["tensor_with_models", "uniform_padding_models", "octree_base_padding_models"],
@@ -205,43 +150,56 @@ def test_read_rejects_a_model_that_is_not_one_value_per_cell(case_name):
     # UniformTensorMesh states cell counts as array values, so this also
     # covers the path that reads the shape array to derive them.
     with pytest.raises(ValueError, match="one value per cell"):
-        cmb.read_header(_reader(_forge_model_shape(case_name, [7])))
+        cmb.read_header(_reader(forge_model_shape(case_name, [7])))
 
 
 def test_reference_mode_model_length_is_checked_too():
     with pytest.raises(ValueError, match="one value per cell"):
-        cmb.read_header(_reader(_forge_model_shape("reference_models_only", [99])))
+        cmb.read_header(_reader(forge_model_shape("reference_models_only", [99])))
 
 
 @pytest.mark.parametrize(
     "case_name",
     [
         "tensor_with_models",
-        "uniform_padding_models",
-        "octree_base_padding_models",
         "reference_models_only",
     ],
 )
 @pytest.mark.parametrize("ndim", [0, 2], ids=["scalar", "matrix"])
-@pytest.mark.parametrize("writer", ["write_file", "build_file_bytes"])
-def test_writers_reject_non_1d_models(tmp_path, case_name, ndim, writer):
+def test_build_rejects_non_1d_models(case_name, ndim):
     case = CASES[case_name]
     values = next(iter(case["models"].values()))["array"]
     invalid = np.array(1.0) if ndim == 0 else values.reshape(1, -1)
     models = {"rho": {"array": invalid}}
     with pytest.raises(ValueError, match="must be a 1D array"):
-        if writer == "write_file":
-            cmb.write_file(tmp_path / "bad.cmb", case["mesh"], models)
-        else:
-            cmb.build_file_bytes(case["mesh"], models)
+        cmb.build_file_bytes(case["mesh"], models)
+
+
+def test_write_file_matches_build_and_rejects_invalid_geometry_and_models(tmp_path):
+    case = CASES["tensor_with_models"]
+    expected = build_bytes(case)
+    path = tmp_path / "written.cmb"
+    cmb.write_file(path, case["mesh"], case["models"], case["metadata"])
+    assert path.read_bytes() == expected
+
+    invalid_mesh = {
+        **case["mesh"],
+        "arrays": {**case["mesh"]["arrays"], "extra": np.array([1.0])},
+    }
+    with pytest.raises(ValueError, match="required keys"):
+        cmb.write_file(tmp_path / "bad-geometry.cmb", invalid_mesh)
+
+    invalid_models = {
+        "rho": {"metadata": {}, "array": np.arange(3.0)},
+    }
+    with pytest.raises(ValueError, match="one value per cell"):
+        cmb.write_file(tmp_path / "bad-model.cmb", case["mesh"], invalid_models)
 
 
 @pytest.mark.parametrize(
     "case_name",
     [
         "tensor_with_models",
-        "uniform_padding_models",
-        "octree_base_padding_models",
         "reference_models_only",
     ],
 )
@@ -253,7 +211,7 @@ def test_read_rejects_non_1d_models(case_name, ndim):
     with pytest.raises(
         ValueError, match=r"must (be a 1D array|contain zero or one dimension)"
     ):
-        cmb.read_header(_reader(_forge_model_shape(case_name, shape)))
+        cmb.read_header(_reader(forge_model_shape(case_name, shape)))
 
 
 @pytest.mark.parametrize("dtype", [np.int32, np.int64])

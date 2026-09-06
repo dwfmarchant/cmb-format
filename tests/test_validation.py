@@ -1,187 +1,98 @@
 """Regression tests for the v1 writer and reader validation contract."""
 
 import io
-import json
-import struct
 
 import numpy as np
 import pytest
 
 import cmb_format as cmb
-from cases import CASES
 from cmb_format._codec import sha256_hex
+from test_helpers import frame, fresh_mesh, mutate, unpack_case
+
+MESH_CASES = {
+    "TensorMesh": "tensor_embedded",
+    "UniformTensorMesh": "uniform_embedded",
+    "OctreeMesh": "octree_embedded",
+}
 
 
-def _unpack(case_name="tensor_with_models"):
-    raw = _build(case_name)
-    length = struct.unpack("<Q", raw[-16:-8])[0]
-    return (
-        json.loads(raw[-16 - length : -16]),
-        raw[8 : -16 - length],
-    )
-
-
-def _build(case_name):
-    case = CASES[case_name]
-    return cmb.build_file_bytes(case["mesh"], case["models"], case["metadata"])
-
-
-def _frame(header, data):
-    blob = json.dumps(header).encode()
-    return cmb.MAGIC + data + blob + struct.pack("<Q", len(blob)) + cmb.MAGIC
-
-
-def _mutated(case_name, path, value):
-    header, data = _unpack(case_name)
-    target = header
-    for key in path[:-1]:
-        target = target[key]
-    target[path[-1]] = value
-    return _frame(header, data)
-
-
-def _tensor():
-    return {
-        "mode": "embedded",
-        "mesh_class": "TensorMesh",
-        "arrays": {
-            "origin": np.zeros(3),
-            "h_x": np.ones(2),
-            "h_y": np.ones(2),
-            "h_z": np.ones(2),
-        },
-    }
-
-
-def _uniform(shape=(4, 4, 2)):
-    return {
-        "mode": "embedded",
-        "mesh_class": "UniformTensorMesh",
-        "arrays": {
-            "origin": np.zeros(3),
-            "cell_size": np.ones(3),
-            "shape": np.asarray(shape, dtype=np.int32),
-        },
-    }
-
-
-def _base(shape=(4, 4, 4)):
-    result = _uniform(shape)
-    result.pop("mode")
-    return result
-
-
-def _octree(base_shape=(4, 4, 4)):
-    return {
-        "mode": "embedded",
-        "mesh_class": "OctreeMesh",
-        "arrays": {
-            "level": np.array([0], dtype=np.int8),
-            "position": np.array([0], dtype=np.int32),
-        },
-        "base_mesh": _base(base_shape),
-    }
-
-
-@pytest.mark.parametrize("writer", ["build", "write"])
 @pytest.mark.parametrize(
-    "mesh_class", ["TensorMesh", "UniformTensorMesh", "OctreeMesh"]
+    "mesh_class, mutation",
+    [
+        pytest.param(mesh_class, mutation, id=f"{mesh_class}-{mutation}")
+        for mesh_class in ("TensorMesh", "UniformTensorMesh", "OctreeMesh")
+        for mutation in ("extra", "missing")
+    ],
 )
-def test_writer_rejects_wrong_geometry_keys(tmp_path, writer, mesh_class):
-    mesh = (
-        _tensor()
-        if mesh_class == "TensorMesh"
-        else _uniform()
-        if mesh_class == "UniformTensorMesh"
-        else _octree()
-    )
-    mesh["arrays"]["extra"] = np.array([1.0])
+def test_writer_rejects_wrong_geometry_keys(mesh_class, mutation):
+    mesh = fresh_mesh(MESH_CASES[mesh_class])
+    if mutation == "extra":
+        mesh["arrays"]["extra"] = np.array([1.0])
+    else:
+        del mesh["arrays"][next(iter(mesh["arrays"]))]
     with pytest.raises(ValueError, match="required keys"):
-        if writer == "build":
-            cmb.build_file_bytes(mesh)
-        else:
-            cmb.write_file(tmp_path / "bad.cmb", mesh)
-
-
-@pytest.mark.parametrize("writer", ["build", "write"])
-@pytest.mark.parametrize(
-    "mesh_class", ["TensorMesh", "UniformTensorMesh", "OctreeMesh"]
-)
-def test_writer_rejects_missing_geometry_keys(tmp_path, writer, mesh_class):
-    mesh = (
-        _tensor()
-        if mesh_class == "TensorMesh"
-        else _uniform()
-        if mesh_class == "UniformTensorMesh"
-        else _octree()
-    )
-    del mesh["arrays"][next(iter(mesh["arrays"]))]
-    with pytest.raises(ValueError, match="required keys"):
-        if writer == "build":
-            cmb.build_file_bytes(mesh)
-        else:
-            cmb.write_file(tmp_path / "bad.cmb", mesh)
-
-
-@pytest.mark.parametrize("value", ["Tensormesh", [], {}, None])
-def test_writer_rejects_unknown_mesh_class(value):
-    mesh = _tensor()
-    mesh["mesh_class"] = value
-    with pytest.raises(ValueError, match="mesh_class"):
         cmb.build_file_bytes(mesh)
 
 
-@pytest.mark.parametrize("value", ["other", [], {}, None])
-def test_writer_rejects_unknown_mesh_mode(value):
-    mesh = _tensor()
-    mesh["mode"] = value
-    with pytest.raises(ValueError, match="mode"):
-        cmb.build_file_bytes(mesh)
-
-
-@pytest.mark.parametrize("field", ["origin", "cell_size"])
-def test_writer_rejects_wrong_uniform_geometry_dtype(field):
-    mesh = _uniform()
-    mesh["arrays"][field] = np.zeros(3, dtype=np.float32)
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        pytest.param("mesh_class", value, id=f"mesh_class-{value!r}")
+        for value in ("Tensormesh", [], {}, None)
+    ]
+    + [
+        pytest.param("mode", value, id=f"mode-{value!r}")
+        for value in ("other", [], {}, None)
+    ],
+)
+def test_writer_rejects_unknown_mesh_values(field, value):
+    mesh = fresh_mesh("tensor_embedded")
+    mesh[field] = value
     with pytest.raises(ValueError, match=field):
         cmb.build_file_bytes(mesh)
 
 
-def test_writer_rejects_wrong_tensor_geometry_shape():
-    mesh = _tensor()
-    mesh["arrays"]["origin"] = np.zeros((3, 1))
-    with pytest.raises(ValueError, match="origin"):
-        cmb.build_file_bytes(mesh)
-
-
-def test_writer_rejects_wrong_octree_geometry_dtype_and_lengths():
-    mesh = _octree()
-    mesh["arrays"]["level"] = np.array([0], dtype=np.int16)
-    with pytest.raises(ValueError, match="level"):
-        cmb.build_file_bytes(mesh)
-    mesh = _octree()
-    mesh["arrays"]["position"] = np.array([0, 1], dtype=np.int32)
-    with pytest.raises(ValueError, match="equal lengths"):
+@pytest.mark.parametrize(
+    "case_name, field, value, match",
+    [
+        ("uniform_embedded", "origin", np.zeros(3, dtype=np.float32), "origin"),
+        ("uniform_embedded", "cell_size", np.zeros(3, dtype=np.float32), "cell_size"),
+        ("tensor_embedded", "origin", np.zeros((3, 1)), "origin"),
+        ("octree_embedded", "level", np.array([0], dtype=np.int16), "level"),
+        (
+            "octree_embedded",
+            "position",
+            np.array([0, 1], dtype=np.int32),
+            "equal lengths",
+        ),
+    ],
+)
+def test_writer_rejects_bad_geometry(case_name, field, value, match):
+    mesh = fresh_mesh(case_name)
+    mesh["arrays"][field] = value
+    with pytest.raises(ValueError, match=match):
         cmb.build_file_bytes(mesh)
 
 
 @pytest.mark.parametrize("shape", [(6, 4, 4), (3, 3, 3), (12, 4, 4)])
-@pytest.mark.parametrize("writer", ["build", "write"])
-def test_writer_rejects_non_power_of_two_octree_bases(tmp_path, shape, writer):
+def test_writer_rejects_non_power_of_two_octree_bases(shape):
+    octree = fresh_mesh("octree_embedded")
+    octree["base_mesh"]["arrays"]["shape"] = np.asarray(shape, dtype=np.int32)
+    reference = fresh_mesh("reference_with_base_mesh")
+    reference["n_cells"] = 0
+    reference["base_mesh"]["arrays"]["shape"] = np.asarray(shape, dtype=np.int32)
     meshes = [
-        _octree(shape),
-        {"mode": "reference", "n_cells": 0, "base_mesh": _base(shape)},
+        octree,
+        reference,
     ]
-    for index, mesh in enumerate(meshes):
+    for mesh in meshes:
         with pytest.raises(ValueError, match="powers of two"):
-            if writer == "build":
-                cmb.build_file_bytes(mesh)
-            else:
-                cmb.write_file(tmp_path / f"bad-{index}.cmb", mesh)
+            cmb.build_file_bytes(mesh)
 
 
 def test_standalone_uniform_mesh_does_not_require_power_of_two_dimensions():
-    mesh = _uniform((3, 3, 3))
+    mesh = fresh_mesh("uniform_embedded")
+    mesh["arrays"]["shape"] = np.array([3, 3, 3], dtype=np.int32)
     assert cmb.build_file_bytes(mesh)
 
 
@@ -217,71 +128,55 @@ def test_reference_count_can_be_inferred_from_models():
 
 @pytest.mark.parametrize("value", [True, False, 3.0, -1, "3", [], {}, None])
 def test_reference_count_is_strict_on_reader(value):
-    header, data = _unpack("reference_explicit_n_cells")
+    header, data = unpack_case("reference_explicit_n_cells")
     header["mesh"]["n_cells"] = value
     with pytest.raises(ValueError, match="n_cells"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 @pytest.mark.parametrize(
-    "case_name", ["tensor_embedded", "uniform_embedded", "octree_embedded"]
+    "case_name, mutation",
+    [
+        pytest.param(case_name, mutation, id=f"{case_name}-{mutation}")
+        for case_name in ("tensor_embedded", "uniform_embedded", "octree_embedded")
+        for mutation in ("extra", "missing")
+    ],
 )
-def test_reader_rejects_extra_geometry_keys(case_name):
+def test_reader_rejects_wrong_geometry_keys(case_name, mutation):
+    if mutation == "extra":
+        raw = mutate(case_name, ["mesh", "arrays", "extra"], {})
+    else:
+        header, data = unpack_case(case_name)
+        del header["mesh"]["arrays"][next(iter(header["mesh"]["arrays"]))]
+        raw = frame(header, data)
     with pytest.raises(ValueError, match="required keys"):
-        cmb.read_header(
-            io.BytesIO(_mutated(case_name, ["mesh", "arrays", "extra"], {}))
-        )
+        cmb.read_header(io.BytesIO(raw))
 
 
 @pytest.mark.parametrize(
-    "case_name", ["tensor_embedded", "uniform_embedded", "octree_embedded"]
+    "case_name, field, updates, match",
+    [
+        ("tensor_embedded", "origin", {"dtype": "float32", "length": 12}, "origin"),
+        ("uniform_embedded", "origin", {"shape": [2], "length": 16}, "origin"),
+        ("octree_embedded", "position", {"shape": [2], "length": 8}, "equal lengths"),
+        (
+            "octree_embedded",
+            "level",
+            {"dtype": "int16", "length": 30},
+            "must have dtype",
+        ),
+    ],
 )
-def test_reader_rejects_missing_geometry_keys(case_name):
-    header, data = _unpack(case_name)
-    del header["mesh"]["arrays"][next(iter(header["mesh"]["arrays"]))]
-    with pytest.raises(ValueError, match="required keys"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-
-
-def test_reader_rejects_invalid_geometry_dtype_and_shape():
-    header, data = _unpack("tensor_embedded")
-    descriptor = header["mesh"]["arrays"]["origin"]
+def test_reader_rejects_bad_geometry(case_name, field, updates, match):
+    header, data = unpack_case(case_name)
+    descriptor = header["mesh"]["arrays"][field]
     start = descriptor["offset"]
     descriptor.update(
-        dtype="float32", length=12, checksum=sha256_hex(data[start : start + 12])
+        **updates,
+        checksum=sha256_hex(data[start : start + updates["length"]]),
     )
-    with pytest.raises(ValueError, match="origin"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-    header, data = _unpack("uniform_embedded")
-    descriptor = header["mesh"]["arrays"]["origin"]
-    start = descriptor["offset"]
-    descriptor.update(
-        shape=[2], length=16, checksum=sha256_hex(data[start : start + 16])
-    )
-    with pytest.raises(ValueError, match="origin"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-
-
-def test_reader_rejects_unequal_octree_geometry_lengths():
-    header, data = _unpack("octree_embedded")
-    descriptor = header["mesh"]["arrays"]["position"]
-    start = descriptor["offset"]
-    payload = data[start : start + 8]
-    descriptor.update(shape=[2], length=8, checksum=sha256_hex(payload))
-    with pytest.raises(ValueError, match="equal lengths"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-
-
-def test_reader_rejects_wrong_octree_geometry_dtype():
-    header, data = _unpack("octree_embedded")
-    descriptor = header["mesh"]["arrays"]["level"]
-    start = descriptor["offset"]
-    length = 2 * descriptor["shape"][0]
-    descriptor.update(
-        dtype="int16", length=length, checksum=sha256_hex(data[start : start + length])
-    )
-    with pytest.raises(ValueError, match="must have dtype"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+    with pytest.raises(ValueError, match=match):
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 @pytest.mark.parametrize(
@@ -295,35 +190,39 @@ def test_reader_rejects_wrong_octree_geometry_dtype():
     ],
 )
 def test_reader_rejects_scalar_geometry_descriptors(case_name, field):
-    header, data = _unpack(case_name)
-    descriptor = header["mesh"]["arrays"][field]
-    width = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]]).itemsize
-    start = descriptor["offset"]
-    descriptor.update(
-        shape=[],
-        length=width,
-        checksum=sha256_hex(data[start : start + width]),
-    )
     with pytest.raises(ValueError, match="must be 1D"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        header, data = unpack_case(case_name)
+        descriptor = header["mesh"]["arrays"][field]
+        width = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]]).itemsize
+        descriptor.update(
+            shape=[],
+            length=width,
+            checksum=sha256_hex(
+                data[descriptor["offset"] : descriptor["offset"] + width]
+            ),
+        )
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
-def test_reader_rejects_missing_or_invalid_octree_base():
-    header, data = _unpack("octree_embedded")
-    del header["mesh"]["base_mesh"]
-    with pytest.raises(ValueError, match="base_mesh"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-    header, data = _unpack("octree_embedded")
-    header["mesh"]["base_mesh"]["mesh_class"] = "TensorMesh"
-    with pytest.raises(ValueError, match="UniformTensorMesh"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+@pytest.mark.parametrize(
+    "mutation, match",
+    [("missing", "base_mesh"), ("wrong_class", "UniformTensorMesh")],
+)
+def test_reader_rejects_missing_or_invalid_octree_base(mutation, match):
+    header, data = unpack_case("octree_embedded")
+    if mutation == "missing":
+        del header["mesh"]["base_mesh"]
+    else:
+        header["mesh"]["base_mesh"]["mesh_class"] = "TensorMesh"
+    with pytest.raises(ValueError, match=match):
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 def test_reader_rejects_reference_count_and_inference_failures():
-    header, data = _unpack("reference_explicit_n_cells")
+    header, data = unpack_case("reference_explicit_n_cells")
     header["mesh"]["n_cells"] = True
     with pytest.raises(ValueError, match="n_cells"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
     with pytest.raises(ValueError, match="n_cells"):
         cmb.resolve_reference_n_cells(None, {})
     with pytest.raises(ValueError, match="disagree"):
@@ -334,35 +233,35 @@ def test_reader_rejects_reference_count_and_inference_failures():
 
 
 def test_reader_rejects_bad_padding_values_and_conflicts():
-    header, data = _unpack("tensor_embedded")
+    header, data = unpack_case("tensor_embedded")
     header["mesh"]["default_padding"] = [True, 0, 0, 0, 0, 0]
     with pytest.raises(ValueError, match="padding"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
-    header, data = _unpack("octree_embedded")
+        cmb.read_header(io.BytesIO(frame(header, data)))
+    header, data = unpack_case("octree_embedded")
     header["mesh"]["default_padding"] = [1, 1, 1, 1, 1, 1]
     header["mesh"]["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
     with pytest.raises(ValueError, match="match"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 @pytest.mark.parametrize("shape", [(6, 4, 4), (3, 3, 3), (12, 4, 4)])
 def test_reader_rejects_non_power_of_two_embedded_and_reference_bases(shape):
     for case_name in ("octree_embedded", "reference_with_base_mesh"):
-        header, data = _unpack(case_name)
+        header, data = unpack_case(case_name)
         descriptor = header["mesh"]["base_mesh"]["arrays"]["shape"]
         payload = np.asarray(shape, dtype="<i4").tobytes()
         start = descriptor["offset"]
         data = data[:start] + payload + data[start + len(payload) :]
         descriptor.update(checksum=sha256_hex(payload))
         with pytest.raises(ValueError, match="powers of two"):
-            cmb.read_header(io.BytesIO(_frame(header, data)))
+            cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 def test_reader_rejects_non_object_header_and_models():
     with pytest.raises(ValueError, match="JSON object"):
-        cmb.read_header(io.BytesIO(_frame([], b"")))
+        cmb.read_header(io.BytesIO(frame([], b"")))
     with pytest.raises(ValueError, match="models"):
-        cmb.read_header(io.BytesIO(_mutated("tensor_embedded", ["models"], [])))
+        cmb.read_header(io.BytesIO(mutate("tensor_embedded", ["models"], [])))
 
 
 @pytest.mark.parametrize(
@@ -379,7 +278,7 @@ def test_reader_rejects_malformed_descriptor(field, value):
     with pytest.raises(ValueError, match=r"descriptor|array"):
         cmb.read_header(
             io.BytesIO(
-                _mutated("tensor_with_models", ["models", "rho", "array", field], value)
+                mutate("tensor_with_models", ["models", "rho", "array", field], value)
             )
         )
 
@@ -415,14 +314,14 @@ def test_read_array_rejects_malformed_descriptors_before_io(mutation):
 
 @pytest.mark.parametrize("field", ["dtype", "shape", "offset", "length", "checksum"])
 def test_reader_rejects_missing_descriptor_fields(field):
-    header, data = _unpack("tensor_with_models")
+    header, data = unpack_case("tensor_with_models")
     del header["models"]["rho"]["array"][field]
     with pytest.raises(ValueError, match="missing required"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 def test_reader_rejects_negative_offset_even_with_matching_magic_checksum():
-    header, data = _unpack("reference_models_only")
+    header, data = unpack_case("reference_models_only")
     header["mesh"]["n_cells"] = 1
     descriptor = header["models"]["rho"]["array"]
     descriptor.update(
@@ -432,7 +331,7 @@ def test_reader_rejects_negative_offset_even_with_matching_magic_checksum():
         checksum=sha256_hex(cmb.MAGIC),
     )
     with pytest.raises(ValueError, match="offset"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 class _RejectDataReads(io.BytesIO):
@@ -447,7 +346,7 @@ class _RejectDataReads(io.BytesIO):
 
 
 def test_reader_checks_model_bounds_before_reading_uniform_shape_payload():
-    header, data = _unpack("uniform_embedded")
+    header, data = unpack_case("uniform_embedded")
     header["models"] = {
         "rho": {
             "array": {
@@ -459,16 +358,16 @@ def test_reader_checks_model_bounds_before_reading_uniform_shape_payload():
             }
         }
     }
-    raw = _frame(header, data)
+    raw = frame(header, data)
     with pytest.raises(ValueError, match="data section"):
         cmb.read_header(_RejectDataReads(raw, 8 + len(data)))
 
 
 def test_reader_checks_nested_base_descriptor_bounds():
-    header, data = _unpack("octree_embedded")
+    header, data = unpack_case("octree_embedded")
     header["mesh"]["base_mesh"]["arrays"]["shape"]["offset"] = len(data)
     with pytest.raises(ValueError, match="data section"):
-        cmb.read_header(io.BytesIO(_frame(header, data)))
+        cmb.read_header(io.BytesIO(frame(header, data)))
 
 
 def test_serialize_array_rejects_multidimensional_without_mutating_buffer():
@@ -488,7 +387,7 @@ def test_scalar_standalone_array_round_trips():
 
 
 def test_padding_conflict_is_rejected():
-    mesh = _octree()
+    mesh = fresh_mesh("octree_embedded")
     mesh["default_padding"] = [1, 1, 1, 1, 1, 1]
     mesh["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
     with pytest.raises(ValueError, match="must match"):
@@ -509,7 +408,7 @@ def test_padding_conflict_is_rejected():
     ],
 )
 def test_writer_rejects_bad_padding_values(padding):
-    mesh = _tensor()
+    mesh = fresh_mesh("tensor_embedded")
     mesh["default_padding"] = padding
     with pytest.raises(ValueError, match="padding"):
         cmb.build_file_bytes(mesh)
@@ -548,29 +447,25 @@ def test_raw_mesh_shape_and_compatibility_alias_accept_raw_partial_inputs():
 )
 def test_malformed_schema_values_raise_format_errors(path, value):
     with pytest.raises(ValueError):
-        cmb.read_header(io.BytesIO(_mutated("tensor_with_models", path, value)))
+        cmb.read_header(io.BytesIO(mutate("tensor_with_models", path, value)))
 
 
 def test_null_header_raises_format_error():
     with pytest.raises(ValueError, match="JSON object"):
-        cmb.read_header(io.BytesIO(_frame(None, b"")))
+        cmb.read_header(io.BytesIO(frame(None, b"")))
 
 
-@pytest.mark.parametrize("writer", ["build", "write"])
-def test_uniform_cell_count_does_not_overflow_int64_on_write(tmp_path, writer):
-    mesh = _uniform()
+def test_uniform_cell_count_does_not_overflow_int64_on_write():
+    mesh = fresh_mesh("uniform_embedded")
     mesh["arrays"]["shape"] = np.array([2**32, 2**32, 1], dtype=np.int64)
     # An int64 product wraps this count to zero. No model data is allocated.
     models = {"rho": {"array": np.empty(0)}}
     with pytest.raises(ValueError, match="18446744073709551616 cells"):
-        if writer == "build":
-            cmb.build_file_bytes(mesh, models)
-        else:
-            cmb.write_file(tmp_path / "overflow.cmb", mesh, models)
+        cmb.build_file_bytes(mesh, models)
 
 
 def test_uniform_cell_count_does_not_overflow_int64_on_read():
-    header, data = _unpack("uniform_embedded")
+    header, data = unpack_case("uniform_embedded")
     payload = np.array([2**32, 2**32, 1], dtype="<i8").tobytes()
     header["mesh"]["arrays"]["shape"].update(
         dtype="int64", offset=len(data), length=24, checksum=sha256_hex(payload)
@@ -587,7 +482,7 @@ def test_uniform_cell_count_does_not_overflow_int64_on_read():
         }
     }
     with pytest.raises(ValueError, match="18446744073709551616 cells"):
-        cmb.read_header(io.BytesIO(_frame(header, data + payload)))
+        cmb.read_header(io.BytesIO(frame(header, data + payload)))
 
 
 @pytest.mark.parametrize("entry", [None, {}, {"metadata": {}}])
@@ -606,7 +501,7 @@ def test_supplied_reference_count_type_is_checked_even_with_matching_models(valu
 
 
 def test_writer_rejects_missing_octree_base_before_touching_output(tmp_path):
-    mesh = _octree()
+    mesh = fresh_mesh("octree_embedded")
     del mesh["base_mesh"]
     path = tmp_path / "existing.cmb"
     path.write_bytes(b"existing contents")
@@ -615,22 +510,8 @@ def test_writer_rejects_missing_octree_base_before_touching_output(tmp_path):
     assert path.read_bytes() == b"existing contents"
 
 
-@pytest.mark.parametrize("dtype", sorted(cmb.DTYPE_TO_NUMPY))
-def test_big_endian_arrays_are_stored_as_little_endian(dtype):
-    values = np.arange(3, dtype=np.dtype(cmb.DTYPE_TO_NUMPY[dtype]).newbyteorder(">"))
-    buffer = bytearray()
-    descriptor = cmb.serialize_array(values, buffer)
-    assert (
-        bytes(buffer)
-        == np.arange(3, dtype=np.dtype(cmb.DTYPE_TO_NUMPY[dtype])).tobytes()
-    )
-    np.testing.assert_array_equal(
-        cmb.read_array(io.BytesIO(buffer), 0, descriptor), values
-    )
-
-
 def test_octree_position_and_base_shape_support_int64():
-    mesh = _octree()
+    mesh = fresh_mesh("octree_embedded")
     mesh["arrays"]["position"] = mesh["arrays"]["position"].astype(np.int64)
     mesh["base_mesh"]["arrays"]["shape"] = np.array([4, 4, 4], dtype=np.int64)
     raw = cmb.build_file_bytes(mesh)

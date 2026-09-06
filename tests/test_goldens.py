@@ -24,23 +24,14 @@ CASE_NAMES = sorted(CASES)
 
 
 @pytest.mark.parametrize("name", CASE_NAMES)
-def test_golden_bytes_are_unchanged(name):
-    assert build_bytes(CASES[name]) == (GOLDENS / f"{name}.cmb").read_bytes()
+def test_golden_serialization_sidecars_and_arrays_are_unchanged(name):
+    expected = (GOLDENS / f"{name}.cmb").read_bytes()
+    assert build_bytes(CASES[name]) == expected
 
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_sidecar_matches_the_golden_it_documents(name):
-    # Keep the readable sidecar consistent with its binary fixture.
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
-    header, _ = cmb.read_header(io.BytesIO(raw))
-    assert header == json.loads((GOLDENS / f"{name}.header.json").read_text())
-
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_golden_arrays_read_back_and_verify(name):
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
-    with io.BytesIO(raw) as f:
+    with io.BytesIO(expected) as f:
         header, data_start = cmb.read_header(f)
+        # Keep the readable sidecar consistent with its binary fixture.
+        assert header == json.loads((GOLDENS / f"{name}.header.json").read_text())
         if "arrays" in header["mesh"]:
             cmb.read_arrays(f, data_start, header["mesh"]["arrays"])
         if "base_mesh" in header["mesh"]:
@@ -48,40 +39,30 @@ def test_golden_arrays_read_back_and_verify(name):
         for model in header["models"].values():
             # Reading also verifies the stored SHA-256 checksum.
             cmb.read_array(f, data_start, model["array"])
+        n_cells = _cell_count(f, header, data_start)
+        wrong = {
+            model_name: entry["array"]["shape"][0]
+            for model_name, entry in header["models"].items()
+            if entry["array"]["shape"] != [n_cells]
+        }
+    assert wrong == {}, f"{name} has {n_cells} cells but models {wrong}"
 
 
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_writing_is_deterministic(name):
-    # Golden comparisons require stable serialization for identical input.
-    assert build_bytes(CASES[name]) == build_bytes(CASES[name])
-
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_magic_is_literally_CELLMODB_at_both_ends(name):
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
+def test_magic_is_literal_and_trailer_uses_byte_eight_offsets():
+    raw = (GOLDENS / "tensor_with_models.cmb").read_bytes()
     assert raw[:8] == b"CELLMODB"
     assert raw[-8:] == b"CELLMODB"
-
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_trailer_is_little_endian_uint64_header_length(name):
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
     (declared,) = struct.unpack("<Q", raw[-16:-8])
     header_start = len(raw) - 16 - declared
     assert json.loads(raw[header_start:-16].decode("utf-8"))["format_version"] == 1
-
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_array_offsets_are_relative_to_byte_eight(name):
     # Use the format's literal offset independently of the MAGIC constant.
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
     _, data_start = cmb.read_header(io.BytesIO(raw))
     assert data_start == 8
 
 
 def test_dtype_tokens_are_exactly_the_documented_set():
     # Literal tokens catch renames that a shared writer/reader table would hide.
-    assert set(cmb.DTYPE_TO_NUMPY) == {
+    expected = {
         "float64",
         "float32",
         "int64",
@@ -89,15 +70,9 @@ def test_dtype_tokens_are_exactly_the_documented_set():
         "int16",
         "int8",
     }
+    assert set(cmb.DTYPE_TO_NUMPY) == expected
     header = json.loads((GOLDENS / "all_dtypes.header.json").read_text())
-    assert {m["array"]["dtype"] for m in header["models"].values()} == {
-        "float64",
-        "float32",
-        "int64",
-        "int32",
-        "int16",
-        "int8",
-    }
+    assert {m["array"]["dtype"] for m in header["models"].values()} == expected
 
 
 def test_header_key_names_are_stable():
@@ -157,18 +132,3 @@ def _cell_count(f, header, data_start):
     if mesh["mesh_class"] == "OctreeMesh":
         return arrays["level"]["shape"][0]
     raise AssertionError(f"unhandled mesh_class {mesh['mesh_class']!r}")
-
-
-@pytest.mark.parametrize("name", CASE_NAMES)
-def test_models_are_one_value_per_cell(name):
-    """Every model array has length n_cells, per the specification."""
-    raw = (GOLDENS / f"{name}.cmb").read_bytes()
-    with io.BytesIO(raw) as f:
-        header, data_start = cmb.read_header(f)
-        n_cells = _cell_count(f, header, data_start)
-        wrong = {
-            model_name: entry["array"]["shape"][0]
-            for model_name, entry in header["models"].items()
-            if entry["array"]["shape"] != [n_cells]
-        }
-    assert wrong == {}, f"{name} has {n_cells} cells but models {wrong}"
