@@ -234,9 +234,13 @@ array descriptor. Each model is a one-dimensional array of length
   not read may be left unverified.
 - If `mode` is `"embedded"`, `mesh_class` is one of the three known
   values, and `arrays` contains exactly the keys that class requires
-  (see table above) — no more, no fewer. If `mode` is `"reference"`,
-  every model's array length equals the stated `n_cells` (there is no
-  `mesh_class` to validate in this mode — see Mesh descriptor above).
+  (see table above) — no more, no fewer. Reference mode has no
+  `mesh_class` to validate (see Mesh descriptor above).
+- Every model's array is one-dimensional with length equal to the mesh's
+  cell count, in **both** modes. In reference mode that count is the stated
+  `n_cells`. In embedded mode it comes from the geometry: the product of the
+  `h_x`/`h_y`/`h_z` lengths for `TensorMesh`, the product of the `shape`
+  values for `UniformTensorMesh`, and the `level` length for `OctreeMesh`.
 - When reading a reference-mode file with its paired embedded mesh, compare
   their base grids if the reference carries `base_mesh`. A match is only a
   consistency check; pairing the correct mesh and models remains the
