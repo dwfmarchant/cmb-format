@@ -13,6 +13,7 @@ import numpy as np
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
+    _validate_raw_mesh,
     resolve_reference_n_cells,
     serialize_array,
     serialize_mesh,
@@ -21,38 +22,18 @@ from cmb_format._codec import (
 __all__ = ["build_file_bytes", "write_file"]
 
 
-def _mesh_cell_count(mesh: dict) -> int | None:
-    """Cells the mesh describes, from its arrays. None if it cannot be told."""
-    if mesh.get("mode") == "reference":
-        n = mesh.get("n_cells")
-        return int(n) if isinstance(n, int) else None
-    arrays = mesh.get("arrays")
-    if not isinstance(arrays, dict):
-        return None
-    try:
-        mesh_class = mesh["mesh_class"]
-        if mesh_class == "TensorMesh":
-            return len(arrays["h_x"]) * len(arrays["h_y"]) * len(arrays["h_z"])
-        if mesh_class == "OctreeMesh":
-            return len(arrays["level"])
-        if mesh_class == "UniformTensorMesh":
-            return int(np.prod(np.asarray(arrays["shape"])))
-    except (KeyError, TypeError):
-        return None
-    return None
-
-
-def _check_model_lengths(mesh: dict, models: dict) -> None:
+def _check_model_lengths(models: dict, n_cells: int) -> None:
     """Raise if any model is not one value per cell."""
-    n_cells = _mesh_cell_count(mesh)
     for name, entry in models.items():
+        if not isinstance(entry, dict) or "array" not in entry:
+            raise ValueError(f"model {name!r} must be an object with an 'array' field")
         arr = np.asarray(entry["array"])
         if arr.ndim != 1:
             raise ValueError(
                 f"model {name!r} must be a 1D array, got shape {arr.shape}"
             )
         length = arr.shape[0]
-        if n_cells is not None and length != n_cells:
+        if length != n_cells:
             raise ValueError(
                 f"model {name!r} has {length} values, but the mesh has "
                 f"{n_cells} cells; models are one value per cell"
@@ -65,7 +46,12 @@ def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
     Insertion order preserves the Python writer's exact serialization, which
     is checked by golden files. The format does not require this JSON key order.
     """
-    models = models or {}
+    if not isinstance(mesh, dict):
+        raise ValueError("mesh must be a mapping")
+    if models is None:
+        models = {}
+    elif not isinstance(models, dict):
+        raise ValueError("models must be a mapping")
     buffer = bytearray()
 
     if mesh.get("mode") == "reference":
@@ -75,9 +61,10 @@ def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
             "n_cells": resolve_reference_n_cells(mesh.get("n_cells"), models),
         }
 
-    # Serialize the mesh first so its own validation reports before this.
+    # Validate geometry and model cardinality before mutating the data buffer.
+    n_cells, _ = _validate_raw_mesh(mesh)
+    _check_model_lengths(models, n_cells)
     mesh_header = serialize_mesh(mesh, buffer)
-    _check_model_lengths(mesh, models)
 
     header = {
         "format_version": WRITTEN_FORMAT_VERSION,

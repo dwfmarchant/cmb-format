@@ -1,19 +1,56 @@
 # Code review findings — 0.1.0 release candidate
 
 A working document, not part of the format specification. It records issues
-found reviewing `79d4455` on `release-0.1.0`, to be resolved or consciously
-deferred before tagging v0.1.0. Delete it once the list is closed.
+found reviewing `79d4455` on `release-0.1.0`, with current resolutions and
+deferrals noted below. The baseline issue descriptions remain for review
+history; the resolution notes supersede their original implementation claims.
 
 Baseline at the time of review: 179 tests passing, `ruff check` and
 `ruff format --check` clean, goldens regenerating byte-identically, the
-README example running, 82% line coverage.
+README example running, 82% combined statement/branch coverage.
+
+## Resolution notes for the v1 validation pass
+
+The implementation now validates the supported mesh mode/class and exact
+geometry key sets before deriving a cell count. It checks every model in both
+embedded and reference modes, including inferred reference counts; explicit
+`n_cells` rejects booleans, floats, strings, negatives, and other non-integer
+values, while NumPy integer inputs are normalized for JSON. These checks apply
+to writer and reader paths, so the bypasses described in items 1–3 are closed.
+
+Array descriptors are validated for required fields, supported dtype, scalar
+or one-dimensional non-negative shapes, Python-integer offsets and lengths,
+byte-length agreement, checksum syntax, and file bounds. `read_header` checks
+all known geometry, nested base, and model descriptors before reading the
+uniform shape payload; `read_array` performs the independent structural checks
+for standalone buffers. Checksums for unread payloads remain deferred.
+
+`raw_mesh_shape` is the clear public name for raw writer-array inputs;
+`descriptor_shape` remains a compatibility wrapper and does not accept parsed
+array descriptors. Octree base-grid dimensions are required to be positive
+powers of two in embedded and reference base meshes, as confirmed by the
+user. Root-local Morton ordering and model insertion order remain unchanged.
+Test-side cell counting stays independent so the golden tests do not merely
+repeat implementation logic. Positive widths and cell sizes, leaf alignment,
+and tiling remain the receiving application's responsibility.
+
+Verification after implementation and review:
+
+- 320 tests pass on Python 3.12 and 3.14, including the added validation
+  regressions; combined statement/branch coverage is 90%.
+- An independent audit rejects all 125 malformed-input cases as expected.
+- All 12 binary goldens and their parsed header sidecars remain unchanged.
+- Ruff, formatting, and whitespace checks pass.
+- The source distribution builds a wheel, both pass strict Twine checks,
+  and all 320 tests pass against the installed wheel outside the checkout.
+  The wheel includes `py.typed`.
 
 The central theme: `binary-format.md` specifies a reader-validation contract
 that the reference implementation does not implement. The gaps compound —
 each missing check silently disables a check that *is* implemented, so an
 invalid file is accepted rather than rejected.
 
-## 1. A typo in `mesh_class` disables every model check
+## 1. A typo in `mesh_class` can disable model length checks
 
 Both the writer and the reader accept an unrecognized `mesh_class`, though
 [the spec](binary-format.md#validation-a-reader-should-perform) requires it be
@@ -63,10 +100,11 @@ value unchanged (`_codec.py:336`), so the writer emits it verbatim:
 {"mode": "reference", "n_cells": True}  -> JSON  "n_cells": true
 ```
 
-Reading such a file back, `header_cell_count` returns `None`, and a model
-declaring `shape: [999]` against `n_cells: 3.0` is accepted. The reference
-implementation can produce a file that defeats its own documented validation.
-`isinstance(True, int)` is also why `n_cells: true` survives the writer.
+Reading the float-valued count back, `header_cell_count` returns `None`, and a
+model declaring `shape: [999]` against `n_cells: 3.0` is accepted. The boolean
+count instead becomes `1`, because `isinstance(True, int)` is true. It does
+not disable the length check, but accepting a boolean as a count is still
+incorrect.
 
 The spec calls `n_cells` a "required cell count"; it should be required to be
 an integer, and the writer should coerce or reject.
@@ -85,15 +123,18 @@ that `offset + length` not exceed the data section. Neither is checked in
 | `dtype: "float16"` | `KeyError: 'float16'` | `ValueError` |
 | `checksum` or `offset` key missing | `KeyError` | `ValueError` |
 
-The checksum does the real defensive work, so no *wrong data* is returned. But
-the error types leak implementation internals, and callers catching
-`ValueError` — as the rest of the library's behaviour implies they should —
-will not catch these.
+Checksums do not establish data-section membership: a descriptor with offset
+`-8`, length `8`, dtype `int8`, shape `[8]`, and the checksum of `CELLMODB`
+returns the leading magic as model data. Bounds must be checked independently.
+The error types also leak implementation internals; callers catching
+`ValueError` will not catch these schema errors.
 
-The `offset + length` bound is not currently checkable: `read_array` receives
-only `(f, data_start, descriptor)`, and `read_header` never returns
-`header_start`, so the data section's size is not available to it. That is an
-API-shape decision worth making before v1 freezes.
+In the baseline implementation the `offset + length` bound was not checkable:
+`read_array` receives only `(f, data_start, descriptor)`, and `read_header`
+did not expose the data-section size. The current `read_header` validates
+bounds for every known descriptor; standalone `read_array` intentionally
+keeps its existing signature and therefore validates structure and lengths
+without requiring a CMB trailer.
 
 ## 5. A non-object JSON header raises `AttributeError`
 
@@ -163,33 +204,27 @@ future contributor would be most likely to "simplify".
 
 ## 10. Smaller items
 
-- **Dead code.** `_codec.py:158` is unreachable: the guard at `_codec.py:120`
-  restricts `mesh_class` to two values and both branches return.
-- **Specification gap.** The octree root partition `L = min(nx, ny, nz)` is
-  well defined only when `L` divides every axis, which implicitly requires
-  power-of-two base dimensions. The spec never says so, and the writer accepts
-  6x4x4 and 3x3x3 base grids where the traversal is undefined.
+- **Dead code (resolved).** The unreachable trailing return in
+  `shape_from_mesh_arrays` was removed.
+- **Specification gap (resolved).** The octree root partition `L = min(nx, ny,
+  nz)` now has an explicit policy: every base-grid dimension is a positive
+  power of two, and both writer and reader enforce it.
 - **Ordering asymmetry.** `serialize_arrays` sorts geometry keys, but
   `_assemble` iterates models in insertion order, so the same two models in a
   different dict order produce different bytes (`rho` at offset 96 versus
   288). Legal per the format, but it makes golden stability depend on caller
   dict ordering, and `test_writing_is_deterministic` compares the same dict
   twice, so it would not catch a regression here.
-- **Triplicated logic.** Cell counting exists at `_codec.py:419`,
-  `_file.py:24` and `tests/test_goldens.py:143`, with subtly different input
-  assumptions. This is the root cause of findings 1 and 3 each appearing
-  twice.
-- **Misleading message.** `resolve_reference_n_cells` (`_codec.py:333`) says
-  "needs either a mesh or at least one model" when it means `n_cells`; in
-  reference mode there *is* a mesh.
-- **Docstring gap.** `read_header` does not mention that the
-  `UniformTensorMesh` shape read verifies a checksum, so `read_header` can
-  raise "checksum mismatch".
-- **Style.** `tests/generate_goldens.py:25` has `import io` inside the loop
-  body.
-- **Undocumented export.** `INT8_MAX` is public and genuinely used downstream
-  (`subcrop-mesh`, `io/_cmb_convert.py:52`), but appears in neither the README
-  nor the specification.
+- **Cell-count logic.** Writer and parsed-header validation now share strict
+  mesh rules; the golden tests retain independent counting by design.
+- **Misleading message (resolved).** `resolve_reference_n_cells` now names
+  `n_cells` directly.
+- **Docstring gap (resolved).** `read_header` documents the uniform shape
+  read and its checksum verification.
+- **Style (resolved).** `tests/generate_goldens.py` imports `io` once.
+- **Undocumented export (resolved).** `INT8_MAX` remains public and used
+  downstream (`subcrop-mesh`, `io/_cmb_convert.py:52`), with a concise maximum
+  int8 value comment near its definition. No README expansion is needed.
 
 ## Suggested order
 

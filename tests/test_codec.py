@@ -2,6 +2,7 @@
 
 import io
 import json
+import math
 import struct
 
 import numpy as np
@@ -9,7 +10,7 @@ import pytest
 
 import cmb_format as cmb
 from cases import CASES, build_bytes
-from cmb_format._codec import array_dtype_name
+from cmb_format._codec import array_dtype_name, sha256_hex
 
 VALID = build_bytes(CASES["tensor_with_models"])
 
@@ -84,14 +85,14 @@ def test_detects_a_corrupted_array_via_its_checksum():
 
 def test_detects_array_data_shorter_than_declared():
     with _reader(VALID) as f:
-        header, data_start = cmb.read_header(f)
+        header, _ = cmb.read_header(f)
     descriptor = dict(header["models"]["rho"]["array"])
-    descriptor["length"] = descriptor["length"] * 100
+    short = b"CELLMODB" + b"\0" * (descriptor["offset"] + descriptor["length"] - 1)
     with (
-        _reader(VALID) as f,
+        _reader(short) as f,
         pytest.raises(ValueError, match="shorter than declared"),
     ):
-        cmb.read_array(f, data_start, descriptor)
+        cmb.read_array(f, 8, descriptor)
 
 
 def test_rejects_an_array_dtype_the_format_cannot_express():
@@ -160,19 +161,31 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
 
 
 def _forge_model_shape(case_name, shape):
-    """A valid file with one model's declared shape replaced."""
+    """A valid file with model bytes and declared shape replaced consistently."""
     raw = bytearray(build_bytes(CASES[case_name]))
     (length,) = struct.unpack("<Q", raw[-16:-8])
     header = json.loads(raw[len(raw) - 16 - length : -16])
-    next(iter(header["models"].values()))["array"]["shape"] = shape
-    blob = json.dumps(header).encode("utf-8")
-    return (
-        cmb.MAGIC
-        + bytes(raw[8 : len(raw) - 16 - length])
-        + blob
-        + struct.pack("<Q", len(blob))
-        + cmb.MAGIC
+    data = bytes(raw[8 : len(raw) - 16 - length])
+    rebuilt = bytearray(
+        data[: next(iter(header["models"].values()))["array"]["offset"]]
     )
+    for index, entry in enumerate(header["models"].values()):
+        descriptor = entry["array"]
+        start = descriptor["offset"]
+        stop = start + descriptor["length"]
+        payload = data[start:stop]
+        if index == 0:
+            dtype = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]])
+            count = math.prod(shape)
+            payload = np.arange(count, dtype=dtype).tobytes()
+            descriptor["shape"] = shape
+        descriptor["offset"] = len(rebuilt)
+        descriptor["length"] = len(payload)
+        descriptor["checksum"] = sha256_hex(payload)
+        rebuilt.extend(payload)
+    data = bytes(rebuilt)
+    blob = json.dumps(header).encode("utf-8")
+    return cmb.MAGIC + data + blob + struct.pack("<Q", len(blob)) + cmb.MAGIC
 
 
 def test_write_rejects_a_model_that_is_not_one_value_per_cell(tmp_path):
@@ -237,7 +250,9 @@ def test_read_rejects_non_1d_models(case_name, ndim):
     values = next(iter(CASES[case_name]["models"].values()))["array"]
     # The matrix declares the correct total number of values but the wrong rank.
     shape = [] if ndim == 0 else [1, len(values)]
-    with pytest.raises(ValueError, match="must be a 1D array"):
+    with pytest.raises(
+        ValueError, match=r"must (be a 1D array|contain zero or one dimension)"
+    ):
         cmb.read_header(_reader(_forge_model_shape(case_name, shape)))
 
 

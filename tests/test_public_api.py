@@ -15,6 +15,7 @@ EXPECTED_PUBLIC_API = [
     "normalize_default_padding",
     "padding_as_json",
     "padding_belongs_to_base_mesh",
+    "raw_mesh_shape",
     "read_array",
     "read_arrays",
     "read_header",

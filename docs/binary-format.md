@@ -100,7 +100,7 @@ A mesh descriptor has two modes:
 // mode "reference": models are paired with a separate embedded-mode mesh file.
 {
   "mode": "reference",
-  "n_cells": 12345,                       // required cell count
+  "n_cells": 12345,                       // required non-negative integer cell count
   "base_mesh": {                          // optional -- OctreeMesh reference only, see below
     "mesh_class": "UniformTensorMesh",
     "arrays": {...},
@@ -164,9 +164,9 @@ Geometry and model arrays use the same descriptor:
 | Field | Meaning |
 | --- | --- |
 | `dtype` | `float64`, `float32`, `int64`, `int32`, `int16`, or `int8` |
-| `shape` | Integer dimensions: `[]` for a scalar or `[n]` for a one-dimensional array |
-| `offset` | Byte offset relative to the start of the data section (byte 8) |
-| `length` | Byte length, equal to `product(shape) * dtype_byte_width` |
+| `shape` | Non-negative integer dimensions: `[]` for a scalar or `[n]` for a one-dimensional array |
+| `offset` | Non-negative integer byte offset relative to the start of the data section (byte 8) |
+| `length` | Non-negative integer byte length, equal to `product(shape) * dtype_byte_width` |
 | `checksum` | Required SHA-256 checksum of the raw stored array bytes |
 
 `checksum` is the hexadecimal SHA-256 digest of the array's raw stored bytes
@@ -235,6 +235,10 @@ Root-local traversal can differ from a single global Morton sort on a
 rectangular base grid. All octree model arrays use the same leaf order as
 `level` and `position`, including in reference-mode files.
 
+Each octree base-grid dimension must be a positive power of two. Consequently
+`L` is a power of two that divides each base-grid dimension, making the root
+partition well-defined.
+
 The Python I/O routines preserve supplied array order. Callers must supply
 geometry and model values in the appropriate CMB order.
 
@@ -261,6 +265,8 @@ array descriptor. Each model is a one-dimensional array of length
   values, and `arrays` contains exactly the keys that class requires
   (see table above) — no more, no fewer. Reference mode has no
   `mesh_class` to validate (see Mesh descriptor above).
+- In reference mode, `n_cells` is a non-negative integer. An octree
+  `base_mesh` has positive power-of-two dimensions on every axis.
 - Every model's array is one-dimensional with length equal to the mesh's
   cell count, in **both** modes. In reference mode that count is the stated
   `n_cells`. In embedded mode it comes from the geometry: the product of the
