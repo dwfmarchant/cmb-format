@@ -310,8 +310,8 @@ rejects an unsupported format version should report the versions it accepts.
 
 - **`cmb_format`** is the Python reference implementation in this repository.
   It accepts dictionaries of NumPy arrays and depends on NumPy alone.
-- **[`subcrop-mesh`](https://github.com/dwfmarchant/subcrop-mesh)** integrates
-  the format with mesh and model objects through `subcrop_mesh.io.cmb`.
+- **[`earthbasis-mesh`](https://github.com/dwfmarchant/earthbasis-mesh)** integrates
+  the format with mesh and model objects through `earthbasis_mesh.io.cmb`.
 
 `tests/goldens/` contains committed reference files and parsed JSON header
 sidecars. They test reading known files and preserve the Python writer's
