@@ -242,7 +242,6 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
             base_shape = _validate_raw_base_mesh(
                 mesh["base_mesh"], context="OctreeMesh base_mesh"
             )
-            padding_as_json(mesh.get("default_padding"), base_shape)
             resolve_shared_padding(
                 mesh.get("default_padding"),
                 mesh["base_mesh"].get("default_padding"),
@@ -263,7 +262,6 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be a mapping")
         shape = _validate_raw_base_mesh(base, context="reference base_mesh")
-        padding_as_json(mesh.get("default_padding"), shape)
         resolve_shared_padding(
             mesh.get("default_padding"), base.get("default_padding"), shape
         )
@@ -824,7 +822,6 @@ def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None)
         shape = _validate_parsed_base_mesh(
             f, mesh["base_mesh"], data_start, data_size, context="OctreeMesh base_mesh"
         )
-        padding_as_json(mesh.get("default_padding"), shape)
         resolve_shared_padding(
             mesh.get("default_padding"), mesh["base_mesh"].get("default_padding"), shape
         )
