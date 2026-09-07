@@ -7,6 +7,11 @@ by UBC GIF software. CMB supports uniform and variable-spacing tensor
 meshes, octree meshes, multiple named models, and file- and model-level
 metadata.
 
+CMB stores mesh geometry and model values as typed arrays, with metadata in
+JSON, so consumers can avoid parsing millions of numbers from text. Large
+octree consumers that need only arrays can also avoid allocating a full
+consumer mesh; see the [discretize round trips and benchmarks](docs/discretize.md).
+
 ## Capabilities
 
 - Store mesh geometry and per-cell model arrays together in a `.cmb` file.
@@ -56,11 +61,29 @@ models = {
 }
 cmb.write_file("example.cmb", mesh, models)
 
+mesh, models = cmb.read_file("example.cmb")
+rho = models["rho"]["array"]
+```
+
+`read_file` loads and checksum-verifies all geometry and model arrays,
+including nested base-mesh geometry. It returns dictionaries accepted by
+`write_file`, preserving model metadata and mesh padding. The NumPy arrays
+are read-only; use `.copy()` if you need to modify them.
+
+To access file-level metadata or read individual arrays:
+
+```python
 with open("example.cmb", "rb") as f:
     header, data_start = cmb.read_header(f)
+    metadata = header["metadata"]
     geometry = cmb.read_arrays(f, data_start, header["mesh"]["arrays"])
     rho = cmb.read_array(f, data_start, header["models"]["rho"]["array"])
 ```
+
+For measured large-octree and tensor round trips and timing methodology, see
+[the discretize interoperability notes](docs/discretize.md). On the measured
+2.18-million-leaf sample, the generated CMB file is 10.4 MiB versus 28.8 MiB
+for UBC, and conversion plus CMB writing is about 21× faster.
 
 ## Development
 
