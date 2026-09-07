@@ -17,6 +17,7 @@ EXPECTED_PUBLIC_API = [
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
+    "read_file",
     "read_header",
     "resolve_reference_n_cells",
     "resolve_shared_padding",
