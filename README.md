@@ -10,7 +10,7 @@ metadata.
 CMB stores mesh geometry and model values as typed arrays, with metadata in
 JSON, so consumers can avoid parsing millions of numbers from text. Large
 octree consumers that need only arrays can also avoid allocating a full
-consumer mesh; see the [discretize round trips and benchmarks](docs/discretize.md).
+consumer mesh; see the [discretize round trips and benchmarks](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md).
 
 ## Capabilities
 
@@ -33,7 +33,7 @@ python -m pip install .
 The API accepts dictionaries of NumPy arrays describing meshes and models.
 CMB uses a different cell ordering from UBC GIF; these routines do not
 convert between the two. See
-[Cell numbering / ordering](docs/binary-format.md#cell-numbering-ordering)
+[Cell numbering / ordering](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md#cell-numbering-ordering)
 in the format specification.
 
 Write a four-cell tensor mesh and a resistivity model, then read them back:
@@ -61,16 +61,17 @@ models = {
 }
 cmb.write_file("example.cmb", mesh, models)
 
-mesh, models = cmb.read_file("example.cmb")
+mesh, models, metadata = cmb.read_file("example.cmb")
 rho = models["rho"]["array"]
 ```
 
 `read_file` loads and checksum-verifies all geometry and model arrays,
-including nested base-mesh geometry. It returns dictionaries accepted by
-`write_file`, preserving model metadata and mesh padding. The NumPy arrays
-are read-only; use `.copy()` if you need to modify them.
+including nested base-mesh geometry. Its three results match `write_file`'s
+`mesh`, `models`, and `metadata` parameters, so passing them straight back
+preserves the mesh geometry, model arrays, and metadata. The NumPy arrays are
+read-only; use `.copy()` if you need to modify them.
 
-To access file-level metadata or read individual arrays:
+To read individual arrays without loading the whole file:
 
 ```python
 with open("example.cmb", "rb") as f:
@@ -81,7 +82,7 @@ with open("example.cmb", "rb") as f:
 ```
 
 For measured large-octree and tensor round trips and timing methodology, see
-[the discretize interoperability notes](docs/discretize.md). On the measured
+[the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured
 2.18-million-leaf sample, the generated CMB file is 10.4 MiB versus 28.8 MiB
 for UBC, and conversion plus CMB writing is about 21× faster.
 
@@ -99,7 +100,7 @@ python -m ruff format --check .
 Committed reference files in `tests/goldens/` test compatibility with the
 binary format alongside round-trip tests.
 
-The [format specification](docs/binary-format.md) defines the file layout
+The [format specification](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md) defines the file layout
 and mesh schemas. Package and format versions are independent; see
-[versioning](docs/binary-format.md#versioning) and the
-[package changelog](CHANGELOG.md).
+[versioning](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md#versioning) and the
+[package changelog](https://github.com/dwfmarchant/cmb-format/blob/main/CHANGELOG.md).

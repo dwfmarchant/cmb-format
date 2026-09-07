@@ -25,8 +25,12 @@ from cmb_format._codec import (
 __all__ = ["build_file_bytes", "read_file", "write_file"]
 
 
-def read_file(file_name: str | os.PathLike) -> tuple[dict, dict]:
-    """Read a complete CMB file into mesh and model dictionaries.
+def read_file(file_name: str | os.PathLike) -> tuple[dict, dict, dict]:
+    """Read a complete CMB file into mesh, model, and metadata dictionaries.
+
+    The three results match `write_file`'s ``mesh``, ``models``, and
+    ``metadata`` parameters, so passing them straight back preserves the
+    mesh geometry, model arrays, and metadata.
 
     Parameters
     ----------
@@ -36,18 +40,21 @@ def read_file(file_name: str | os.PathLike) -> tuple[dict, dict]:
     Returns
     -------
     mesh : dict
-        Mesh description with geometry arrays, including any ``base_mesh``
-        arrays, loaded as read-only NumPy arrays. Reference meshes retain
-        their descriptor; no external mesh is loaded.
+        Mesh descriptor. For an embedded mesh, and for any ``base_mesh``,
+        the geometry ``arrays`` are loaded as read-only NumPy arrays. A
+        reference descriptor is returned as stored, including its
+        ``n_cells``; no external mesh is loaded, and any unrecognized
+        ``arrays`` key it carries is passed through unconverted.
     models : dict
         ``{name: {"metadata": {...}, "array": <ndarray>}}`` with read-only
         NumPy arrays and stored model metadata. Empty if there are no models.
+    metadata : dict
+        File-level metadata. Empty if the file records none.
 
     Notes
     -----
     Validates the header and checksum-verifies all loaded arrays. The file is
-    closed before returning. Both dictionaries can be passed to `write_file`.
-    File-level metadata is available separately through `read_header`.
+    closed before returning.
     """
     with open(file_name, "rb") as f:
         header, data_start = read_header(f)
@@ -65,7 +72,7 @@ def read_file(file_name: str | os.PathLike) -> tuple[dict, dict]:
             }
             for name, entry in header.get("models", {}).items()
         }
-    return mesh, models
+    return mesh, models, header.get("metadata", {})
 
 
 def _check_model_lengths(models: dict, n_cells: int) -> None:

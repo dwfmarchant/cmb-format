@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import cmb_format as cmb
-from cases import CASES
+from cases import _REFERENCE_CELLS, CASES
 from test_helpers import frame, unpack_case
 
 GOLDENS = Path(__file__).parent / "goldens"
@@ -25,7 +25,7 @@ def assert_mesh_loaded(actual, expected):
             assert actual[key] == expected[key]
     assert actual.get("default_padding") == expected.get("default_padding")
     if expected.get("mode") == "reference":
-        assert actual["n_cells"] == expected.get("n_cells", 3)
+        assert actual["n_cells"] == expected.get("n_cells", _REFERENCE_CELLS)
     if "arrays" in expected:
         assert actual["arrays"].keys() == expected["arrays"].keys()
         for name, array in expected["arrays"].items():
@@ -41,7 +41,7 @@ def assert_mesh_loaded(actual, expected):
 def test_read_file_loads_golden_and_can_be_written_back(tmp_path, case_name, path_type):
     source = GOLDENS / f"{case_name}.cmb"
     case = CASES[case_name]
-    mesh, models = cmb.read_file(path_type(source))
+    mesh, models, metadata = cmb.read_file(path_type(source))
 
     assert_mesh_loaded(mesh, case["mesh"])
     for name, expected_model in case["models"].items():
@@ -49,9 +49,12 @@ def test_read_file_loads_golden_and_can_be_written_back(tmp_path, case_name, pat
         assert models[name]["metadata"] == expected_model["metadata"]
         assert_array_loaded(models[name]["array"], expected_model["array"])
     assert list(models) == list(case["models"])
+    assert metadata == case["metadata"]
 
+    # Feed back only what read_file returned; sourcing any argument from the
+    # fixture instead would hide a field the reader fails to recover.
     output = tmp_path / "rewritten.cmb"
-    cmb.write_file(output, mesh, models, case["metadata"])
+    cmb.write_file(output, mesh, models, metadata)
     assert output.read_bytes() == source.read_bytes()
 
 
@@ -60,13 +63,13 @@ def test_read_file_handles_omitted_models_and_metadata(tmp_path):
     del header["models"]
     path = tmp_path / "no-models.cmb"
     path.write_bytes(frame(header, data))
-    _, models = cmb.read_file(path)
+    _, models, _ = cmb.read_file(path)
     assert models == {}
 
     header, data = unpack_case("tensor_with_models")
     del header["models"]["rho"]["metadata"]
     path.write_bytes(frame(header, data))
-    _, models = cmb.read_file(path)
+    _, models, _ = cmb.read_file(path)
     assert models["rho"]["metadata"] == {}
 
 
@@ -107,7 +110,7 @@ def test_read_file_preserves_unknown_descriptor_fields(tmp_path):
     path = tmp_path / "extensions.cmb"
     path.write_bytes(frame(header, data))
 
-    mesh, models = cmb.read_file(path)
+    mesh, models, _ = cmb.read_file(path)
     assert mesh["future_mesh_field"] == "kept"
     assert mesh["base_mesh"]["future_base_field"] is True
     assert models["rho"]["future_model_field"] == 42
@@ -115,5 +118,5 @@ def test_read_file_preserves_unknown_descriptor_fields(tmp_path):
     header, data = unpack_case("reference_explicit_n_cells")
     header["mesh"]["arrays"] = {"future": "ignored"}
     path.write_bytes(frame(header, data))
-    mesh, _ = cmb.read_file(path)
+    mesh, _, _ = cmb.read_file(path)
     assert mesh["arrays"] == {"future": "ignored"}

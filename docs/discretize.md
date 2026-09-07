@@ -53,7 +53,7 @@ cmb_mesh_data = {
 cmb.write_file("octree_mesh.cmb", cmb_mesh_data)
 
 # Read the file just written and reconstruct the same mesh.
-mesh_dict, _ = cmb.read_file("octree_mesh.cmb")
+mesh_dict, _, _ = cmb.read_file("octree_mesh.cmb")
 base = mesh_dict["base_mesh"]
 shape = tuple(int(value) for value in base["arrays"]["shape"])
 cell_size = np.asarray(base["arrays"]["cell_size"], dtype=np.float64)
@@ -104,7 +104,7 @@ cmb_models = {
 }
 cmb.write_file("fine.cmb", cmb_tensor_mesh_data, cmb_models)
 
-mesh_dict, model_dict = cmb.read_file("fine.cmb")
+mesh_dict, model_dict, _ = cmb.read_file("fine.cmb")
 tensor = TensorMesh(
     h=[mesh_dict["arrays"][name] for name in ("h_x", "h_y", "h_z")],
     origin=mesh_dict["arrays"]["origin"],
