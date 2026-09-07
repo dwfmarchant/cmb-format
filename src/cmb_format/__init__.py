@@ -25,7 +25,7 @@ from cmb_format._codec import (
     summarize_models,
 )
 from cmb_format._detect import is_cmb_file
-from cmb_format._file import build_file_bytes, write_file
+from cmb_format._file import build_file_bytes, read_file, write_file
 from cmb_format._padding import (
     normalize_default_padding,
     validate_default_padding_shape,
@@ -46,6 +46,7 @@ __all__ = [
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
+    "read_file",
     "read_header",
     "resolve_reference_n_cells",
     "resolve_shared_padding",

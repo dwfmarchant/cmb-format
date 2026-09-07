@@ -1,4 +1,4 @@
-"""Assemble CMB files from mesh and model array dictionaries.
+"""Read and write CMB files as mesh and model array dictionaries.
 
 Writers stamp ``WRITTEN_FORMAT_VERSION`` and buffer the raw array data before
 writing the header and trailer. See ``docs/binary-format.md`` for the layout.
@@ -14,12 +14,65 @@ from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
     _validate_raw_mesh,
+    read_array,
+    read_arrays,
+    read_header,
     resolve_reference_n_cells,
     serialize_array,
     serialize_mesh,
 )
 
-__all__ = ["build_file_bytes", "write_file"]
+__all__ = ["build_file_bytes", "read_file", "write_file"]
+
+
+def read_file(file_name: str | os.PathLike) -> tuple[dict, dict, dict]:
+    """Read a complete CMB file into mesh, model, and metadata dictionaries.
+
+    The three results match `write_file`'s ``mesh``, ``models``, and
+    ``metadata`` parameters, so passing them straight back preserves the
+    mesh geometry, model arrays, and metadata.
+
+    Parameters
+    ----------
+    file_name : str or os.PathLike
+        Input path.
+
+    Returns
+    -------
+    mesh : dict
+        Mesh descriptor. For an embedded mesh, and for any ``base_mesh``,
+        the geometry ``arrays`` are loaded as read-only NumPy arrays. A
+        reference descriptor is returned as stored, including its
+        ``n_cells``; no external mesh is loaded, and any unrecognized
+        ``arrays`` key it carries is passed through unconverted.
+    models : dict
+        ``{name: {"metadata": {...}, "array": <ndarray>}}`` with read-only
+        NumPy arrays and stored model metadata. Empty if there are no models.
+    metadata : dict
+        File-level metadata. Empty if the file records none.
+
+    Notes
+    -----
+    Validates the header and checksum-verifies all loaded arrays. The file is
+    closed before returning.
+    """
+    with open(file_name, "rb") as f:
+        header, data_start = read_header(f)
+        mesh = header["mesh"]
+        if mesh["mode"] == "embedded":
+            mesh["arrays"] = read_arrays(f, data_start, mesh["arrays"])
+        if "base_mesh" in mesh:
+            base = mesh["base_mesh"]
+            base["arrays"] = read_arrays(f, data_start, base["arrays"])
+        models = {
+            name: {
+                **entry,
+                "metadata": entry.get("metadata", {}),
+                "array": read_array(f, data_start, entry["array"]),
+            }
+            for name, entry in header.get("models", {}).items()
+        }
+    return mesh, models, header.get("metadata", {})
 
 
 def _check_model_lengths(models: dict, n_cells: int) -> None:
