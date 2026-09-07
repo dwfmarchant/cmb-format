@@ -44,9 +44,7 @@ cmb_mesh_data = {
         "mesh_class": "UniformTensorMesh",
         "arrays": {
             "origin": dis_mesh.origin.copy(),
-            "cell_size": np.array(
-                [axis[0] for axis in dis_mesh.h], dtype=np.float64
-            ),
+            "cell_size": np.array([axis[0] for axis in dis_mesh.h], dtype=np.float64),
             "shape": shape,
         },
     },
