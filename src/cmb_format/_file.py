@@ -5,74 +5,232 @@ writing the header and trailer. See ``docs/binary-format.md`` for the layout.
 """
 
 import json
+import math
 import os
 import struct
+from collections.abc import Sequence
 
 import numpy as np
 
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
+    _read_header,
     _validate_raw_mesh,
+    base_mesh_descriptor,
+    padding_as_json,
+    padding_belongs_to_base_mesh,
+    raw_mesh_shape,
     read_array,
     read_arrays,
     read_header,
     resolve_reference_n_cells,
+    resolve_shared_padding,
     serialize_array,
     serialize_mesh,
+    summarize_models,
+    validate_model_lengths,
 )
+from cmb_format._padding import normalize_integer_array
 
-__all__ = ["build_file_bytes", "read_file", "write_file"]
+__all__ = [
+    "build_file_bytes",
+    "list_models",
+    "read_contents",
+    "read_file",
+    "write_file",
+]
 
 
-def read_file(file_name: str | os.PathLike) -> tuple[dict, dict, dict]:
-    """Read a complete CMB file into mesh, model, and metadata dictionaries.
+def _select_model_names(
+    model_headers: dict, requested: Sequence[str] | None
+) -> list[str]:
+    """Resolve a model selection in stored header order."""
+    if requested is None:
+        return list(model_headers)
+    if isinstance(requested, str):
+        raise TypeError(
+            "models must be a sequence of names, not a single string -- "
+            f"pass [{requested!r}] to read only that model"
+        )
+    requested_names = list(requested)
+    unknown = [name for name in requested_names if name not in model_headers]
+    if unknown:
+        have = ", ".join(repr(name) for name in model_headers) or "no models"
+        raise ValueError(
+            f"unknown model(s): {', '.join(repr(name) for name in unknown)}; "
+            f"file has {have}"
+        )
+    wanted = set(requested_names)
+    return [name for name in model_headers if name in wanted]
 
-    The three results match `write_file`'s ``mesh``, ``models``, and
-    ``metadata`` parameters, so passing them straight back preserves the
-    mesh geometry, model arrays, and metadata.
+
+def _normalize_read_mesh_padding(mesh: dict) -> None:
+    """Canonicalize padding placement and values in a loaded mesh descriptor."""
+    base = base_mesh_descriptor(mesh)
+    if padding_belongs_to_base_mesh(mesh):
+        shape = raw_mesh_shape(mesh)
+        shared = resolve_shared_padding(
+            mesh.get("default_padding"), base.get("default_padding"), shape
+        )
+        if shared is None:
+            base.pop("default_padding", None)
+        else:
+            base["default_padding"] = shared
+        mesh.pop("default_padding", None)
+        return
+
+    if "default_padding" in mesh:
+        padding = padding_as_json(mesh.get("default_padding"), raw_mesh_shape(mesh))
+        if padding is None:
+            mesh.pop("default_padding", None)
+        else:
+            mesh["default_padding"] = padding
+    if base is not None and "default_padding" in base:
+        padding = padding_as_json(base.get("default_padding"), raw_mesh_shape(base))
+        if padding is None:
+            base.pop("default_padding", None)
+        else:
+            base["default_padding"] = padding
+
+
+def read_file(
+    file_name: str | os.PathLike,
+    *,
+    models: Sequence[str] | None = None,
+) -> tuple[dict, dict, dict]:
+    """Read a CMB file into mesh, selected model, and metadata dictionaries.
+
+    The three results match ``write_file``'s ``mesh``, ``models``, and
+    ``metadata`` parameters, so passing them straight back preserves the mesh
+    geometry, model arrays, and metadata. ``models=None`` reads all model
+    payloads. A sequence reads only the named payloads, in file order; duplicate
+    names collapse and an empty sequence skips every model payload. A bare string
+    and unknown names raise an exception before any selected model is read.
 
     Parameters
     ----------
     file_name : str or os.PathLike
         Input path.
+    models : sequence of str, optional
+        Model payloads to load. Geometry and any nested base-mesh arrays are
+        always loaded.
 
     Returns
     -------
     mesh : dict
         Mesh descriptor. For an embedded mesh, and for any ``base_mesh``,
         the geometry ``arrays`` are loaded as read-only NumPy arrays. A
-        reference descriptor is returned as stored, including its
-        ``n_cells``; no external mesh is loaded, and any unrecognized
-        ``arrays`` key it carries is passed through unconverted.
+        reference descriptor includes its ``n_cells``; no external mesh is
+        loaded, and any unrecognized ``arrays`` key it carries is passed
+        through unconverted. Valid padding is normalized to integer lists;
+        shared padding is canonicalized onto a nested ``base_mesh`` and an
+        explicit ``null`` padding field is omitted.
     models : dict
         ``{name: {"metadata": {...}, "array": <ndarray>}}`` with read-only
-        NumPy arrays and stored model metadata. Empty if there are no models.
+        NumPy arrays and stored model metadata. Empty if no model was selected.
+        Opaque fields in selected model entries are preserved.
     metadata : dict
         File-level metadata. Empty if the file records none.
 
     Notes
     -----
-    Validates the header and checksum-verifies all loaded arrays. The file is
-    closed before returning.
+    Validates the header and checksum-verifies all geometry and selected model
+    arrays. Stored geometry and model order is preserved; no consumer mesh
+    ordering is applied. The file is closed before returning.
     """
     with open(file_name, "rb") as f:
         header, data_start = read_header(f)
+        model_headers = header.get("models", {})
+        selected = _select_model_names(model_headers, models)
         mesh = header["mesh"]
         if mesh["mode"] == "embedded":
             mesh["arrays"] = read_arrays(f, data_start, mesh["arrays"])
         if "base_mesh" in mesh:
             base = mesh["base_mesh"]
             base["arrays"] = read_arrays(f, data_start, base["arrays"])
-        models = {
+        _normalize_read_mesh_padding(mesh)
+        model_entries = {
             name: {
-                **entry,
-                "metadata": entry.get("metadata", {}),
-                "array": read_array(f, data_start, entry["array"]),
+                **model_headers[name],
+                "metadata": model_headers[name].get("metadata", {}),
+                "array": read_array(f, data_start, model_headers[name]["array"]),
             }
-            for name, entry in header.get("models", {}).items()
+            for name in selected
         }
-    return mesh, models, header.get("metadata", {})
+    return mesh, model_entries, header.get("metadata", {})
+
+
+def list_models(file_name: str | os.PathLike) -> dict:
+    """List model metadata and shapes without reading any array payloads.
+
+    The returned mapping is ``{name: {"metadata": {...}, "dtype": "float64",
+    "shape": [n]}}`` in stored model order. Header descriptors and payload
+    bounds are validated, but
+    no array bytes are read or checksum-verified. In particular, a corrupt model
+    or geometry payload does not affect this inspection result.
+    """
+    with open(file_name, "rb") as f:
+        header, _ = _read_header(f, read_shape_payload=False)
+    return summarize_models(header)
+
+
+def read_contents(file_name: str | os.PathLike) -> dict:
+    """Summarize a CMB file without loading model payloads.
+
+    Returns a mapping with ``has_mesh`` (bool), ``mesh_type`` (the embedded
+    mesh class or ``None``), ``has_base_mesh`` (bool), ``n_cells`` (int), and
+    ``models`` (the same mapping returned by :func:`list_models`). Header
+    descriptors, payload bounds, and scalar padding syntax are validated. The
+    only payload read is the top-level ``shape`` array of an embedded
+    ``UniformTensorMesh`` (three values needed to compute ``n_cells``); nested
+    base-mesh shape arrays and all model payloads remain untouched.
+    """
+    with open(file_name, "rb") as f:
+        header, data_start = _read_header(f, read_shape_payload=False)
+        mesh_header = header["mesh"]
+        mode = mesh_header.get("mode")
+        if mode == "embedded":
+            mesh_type = mesh_header["mesh_class"]
+            arrays = mesh_header["arrays"]
+            if mesh_type == "TensorMesh":
+                n_cells = math.prod(
+                    arrays[name]["shape"][0] for name in ("h_x", "h_y", "h_z")
+                )
+            elif mesh_type == "OctreeMesh":
+                n_cells = arrays["level"]["shape"][0]
+            elif mesh_type == "UniformTensorMesh":
+                shape_values = read_array(f, data_start, arrays["shape"])
+                shape = normalize_integer_array(
+                    shape_values,
+                    name="UniformTensorMesh arrays['shape']",
+                    shape=(3,),
+                    minimum=1,
+                    value_description="three positive integer values",
+                )
+                padding_as_json(mesh_header.get("default_padding"), tuple(shape))
+                n_cells = math.prod(int(value) for value in shape)
+            else:  # pragma: no cover - _read_header validates this first.
+                raise ValueError(f"unknown mesh_class: {mesh_type!r}")
+            has_mesh = True
+        elif mode == "reference":
+            has_mesh = False
+            mesh_type = None
+            n_cells = mesh_header["n_cells"]
+        else:  # pragma: no cover - _read_header validates this first.
+            raise ValueError(f"unsupported mesh mode for reading: {mode!r}")
+
+        # Uniform shape values were intentionally deferred from _read_header.
+        # Once available, retain the full-read model/cardinality validation.
+        validate_model_lengths(header.get("models", {}), n_cells)
+
+    return {
+        "has_mesh": has_mesh,
+        "mesh_type": mesh_type,
+        "has_base_mesh": "base_mesh" in mesh_header,
+        "n_cells": n_cells,
+        "models": summarize_models(header),
+    }
 
 
 def _check_model_lengths(models: dict, n_cells: int) -> None:

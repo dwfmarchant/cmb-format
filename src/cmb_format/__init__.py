@@ -25,7 +25,13 @@ from cmb_format._codec import (
     summarize_models,
 )
 from cmb_format._detect import is_cmb_file
-from cmb_format._file import build_file_bytes, read_file, write_file
+from cmb_format._file import (
+    build_file_bytes,
+    list_models,
+    read_contents,
+    read_file,
+    write_file,
+)
 from cmb_format._padding import (
     normalize_default_padding,
     validate_default_padding_shape,
@@ -40,12 +46,14 @@ __all__ = [
     "base_mesh_descriptor",
     "build_file_bytes",
     "is_cmb_file",
+    "list_models",
     "normalize_default_padding",
     "padding_as_json",
     "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
+    "read_contents",
     "read_file",
     "read_header",
     "resolve_reference_n_cells",

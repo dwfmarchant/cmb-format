@@ -16,7 +16,8 @@ consumer mesh; see the [discretize round trips and benchmarks](https://github.co
 
 - Store mesh geometry and per-cell model arrays together in a `.cmb` file.
 - Store models separately from geometry to avoid duplicating large meshes.
-- Read individual arrays without loading the whole file.
+- Read selected model payloads without loading unrequested models.
+- Inspect model metadata and file contents without loading model payloads.
 - Verify each array's integrity with a SHA-256 checksum.
 
 ## Installation
@@ -63,13 +64,35 @@ cmb.write_file("example.cmb", mesh, models)
 
 mesh, models, metadata = cmb.read_file("example.cmb")
 rho = models["rho"]["array"]
+
+# Load geometry and only the requested model. File order is preserved.
+mesh, models, metadata = cmb.read_file("example.cmb", models=["rho"])
 ```
 
-`read_file` loads and checksum-verifies all geometry and model arrays,
+`read_file` loads and checksum-verifies all geometry and selected model arrays,
 including nested base-mesh geometry. Its three results match `write_file`'s
 `mesh`, `models`, and `metadata` parameters, so passing them straight back
-preserves the mesh geometry, model arrays, and metadata. The NumPy arrays are
-read-only; use `.copy()` if you need to modify them.
+preserves the mesh geometry, model arrays, and metadata. Valid padding is
+returned as integer lists, with shared octree/reference padding on the nested
+base descriptor. The NumPy arrays are read-only; use `.copy()` if you need to
+modify them. `models=None` loads every model, `models=[]` loads none, and
+duplicate selections collapse in stored file order.
+
+For inexpensive inspection, use the raw header summaries:
+
+```python
+model_summaries = cmb.list_models("example.cmb")
+contents = cmb.read_contents("example.cmb")
+```
+
+`list_models` returns mappings such as
+`{"rho": {"metadata": {"units": "ohm-m"}, "dtype": "float64", "shape": [4]}}`
+and reads no array payloads. `read_contents` returns
+`{"has_mesh": bool, "mesh_type": str | None, "has_base_mesh": bool,
+"n_cells": int, "models": dict}`; it reads only an embedded uniform mesh's
+three-value shape array to compute `n_cells`. Nested base-mesh and model
+payloads remain unread. Both helpers preserve model metadata, dtype, shape, and
+stored order.
 
 To read individual arrays without loading the whole file:
 
