@@ -9,7 +9,7 @@ import cmb_format as cmb
 from cases import _REFERENCE_CELLS, CASES
 from test_helpers import frame, named_padding, unpack_case
 
-GOLDENS = Path(__file__).parent / "goldens"
+GOLDENS = Path(__file__).parent / "goldens" / "v1"
 
 
 def assert_array_loaded(actual, expected):

@@ -1,8 +1,9 @@
-"""Regenerate binary fixtures and parsed header sidecars.
+"""Regenerate v2 binary fixtures and parsed header sidecars.
 
 Run ``python tests/generate_goldens.py`` after an intentional fixture or
 serialization update. Review the resulting binary and sidecar diffs before
-committing; changed bytes do not necessarily imply a format change.
+committing; the historical v1 fixtures under ``tests/goldens/v1/`` are kept
+separate and are never overwritten by this script.
 """
 
 import io

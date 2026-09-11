@@ -7,7 +7,7 @@ import pytest
 
 import cmb_format as cmb
 
-GOLDENS = pathlib.Path(__file__).parent / "goldens"
+GOLDENS = pathlib.Path(__file__).parent / "goldens" / "v1"
 OCTREE_CASES = [
     "octree_embedded",
     "octree_base_padding_models",

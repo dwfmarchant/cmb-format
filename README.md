@@ -130,8 +130,9 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-Committed reference files in `tests/goldens/` test compatibility with the
-binary format alongside round-trip tests.
+Committed v1 and v2 reference files in `tests/goldens/v1/` and
+`tests/goldens/v2/` test compatibility with the binary format alongside
+round-trip tests.
 
 The [format specification](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md) defines the file layout
 and mesh schemas. Package and format versions are independent; see

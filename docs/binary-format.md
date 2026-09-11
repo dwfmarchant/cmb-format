@@ -325,8 +325,8 @@ rejects an unsupported format version should report the versions it accepts.
 - **[`earthbasis-mesh`](https://github.com/dwfmarchant/earthbasis-mesh)** integrates
   the format with mesh and model objects through `earthbasis_mesh.io.cmb`.
 
-`tests/goldens/` contains committed reference files and parsed JSON header
-sidecars. They test reading known files and preserve the Python writer's
+`tests/goldens/v1/` and `tests/goldens/v2/` contain committed reference
+files and parsed JSON header sidecars. They test reading known files and preserve the Python writer's
 exact serialization. A golden-file change requires review, but does not
 necessarily imply a format change: JSON whitespace or key order can change
 without changing the format's meaning.
