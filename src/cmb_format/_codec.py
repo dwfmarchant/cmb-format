@@ -619,37 +619,30 @@ def read_arrays(f, data_start: int, descriptors: dict) -> dict:
     return {name: read_array(f, data_start, d) for name, d in descriptors.items()}
 
 
-def read_header(f) -> tuple[dict, int]:
-    """Read a CMB file's trailing JSON header from an open binary file.
+def read_header(
+    f,
+    *,
+    read_shape_payload: bool = True,
+) -> tuple[dict, int]:
+    """Read and structurally validate a CMB file's trailing JSON header.
 
-    Checks the file framing, header schema, array descriptor bounds, mesh
-    geometry, and that every model is one value per cell. It reads and
-    checksum-verifies a three-element ``shape`` array when a
-    ``UniformTensorMesh`` needs its values for cell counts and padding checks
-    (12 bytes for int32 or 24 bytes for int64), so this function may raise an
-    array checksum error. Other array payloads remain unread and unverified.
+    The default ``read_shape_payload=True`` checks the file framing, header
+    schema, array descriptor bounds, mesh descriptors, and that every model is one
+    value per cell. It reads and checksum-verifies a three-element ``shape``
+    array when a ``UniformTensorMesh`` needs its values for cell counts and
+    padding checks (12 bytes for int32 or 24 bytes for int64), so the default
+    call may raise an array checksum error. Other array payloads remain unread
+    and unverified.
+
+    With ``read_shape_payload=False``, structural header and descriptor checks
+    still run without reading any shape payload. Shape values and validations
+    dependent on them, such as uniform padding and model counts, are deferred
+    to the caller; counts available directly from the header remain checked.
+    Array payloads are not read or checksum-verified. This mode supports cheap
+    header inspection.
 
     Returns ``(header, data_start)``, where ``data_start`` is byte 8 and array
     offsets are relative to it. Changes the file position.
-    """
-    return _read_header(f, read_shape_payload=True)
-
-
-def _read_header(
-    f,
-    *,
-    read_shape_payload: bool,
-) -> tuple[dict, int]:
-    """Parse and structurally validate a CMB header.
-
-    ``read_header`` reads any ``UniformTensorMesh`` ``shape`` payload needed
-    to validate cell counts.
-    Raw inspection helpers use this lower-level mode with
-    ``read_shape_payload=False`` so their cost does not depend on geometry or
-    model array size. In that mode, shape descriptors and payload bounds are
-    validated, but shape values and shape-dependent padding checks are deferred
-    to the caller when needed. Checksum syntax is validated while checksum
-    hashes are left untouched.
     """
     f.seek(0, os.SEEK_END)
     total_length = f.tell()

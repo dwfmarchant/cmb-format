@@ -15,7 +15,6 @@ import numpy as np
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
-    _read_header,
     _validate_raw_mesh,
     base_mesh_descriptor,
     padding_as_json,
@@ -171,7 +170,7 @@ def list_models(file_name: str | os.PathLike) -> dict:
     or geometry payload does not affect this inspection result.
     """
     with open(file_name, "rb") as f:
-        header, _ = _read_header(f, read_shape_payload=False)
+        header, _ = read_header(f, read_shape_payload=False)
     return summarize_models(header)
 
 
@@ -187,7 +186,7 @@ def read_contents(file_name: str | os.PathLike) -> dict:
     base-mesh shape arrays and all model payloads remain untouched.
     """
     with open(file_name, "rb") as f:
-        header, data_start = _read_header(f, read_shape_payload=False)
+        header, data_start = read_header(f, read_shape_payload=False)
         mesh_header = header["mesh"]
         mode = mesh_header.get("mode")
         if mode == "embedded":
@@ -210,17 +209,18 @@ def read_contents(file_name: str | os.PathLike) -> dict:
                 )
                 padding_as_json(mesh_header.get("default_padding"), tuple(shape))
                 n_cells = math.prod(int(value) for value in shape)
-            else:  # pragma: no cover - _read_header validates this first.
+            else:  # pragma: no cover - read_header validates this first.
                 raise ValueError(f"unknown mesh_class: {mesh_type!r}")
             has_mesh = True
         elif mode == "reference":
             has_mesh = False
             mesh_type = None
             n_cells = mesh_header["n_cells"]
-        else:  # pragma: no cover - _read_header validates this first.
+        else:  # pragma: no cover - read_header validates this first.
             raise ValueError(f"unsupported mesh mode for reading: {mode!r}")
 
-        # Uniform shape values were intentionally deferred from _read_header.
+        # Uniform shape values were deferred by
+        # read_header(..., read_shape_payload=False).
         # Once available, retain the full-read model/cardinality validation.
         validate_model_lengths(header.get("models", {}), n_cells)
 

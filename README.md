@@ -104,6 +104,12 @@ with open("example.cmb", "rb") as f:
     rho = cmb.read_array(f, data_start, header["models"]["rho"]["array"])
 ```
 
+`read_header` accepts the keyword `read_shape_payload`. Its default `True`
+performs full header validation, including the embedded uniform mesh shape
+checksum. Set it to `False` for structural header checks without reading shape
+payloads; shape values and dependent uniform padding or model-count checks are
+deferred.
+
 For measured large-octree and tensor round trips and timing methodology, see
 [the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured
 2.18-million-leaf sample, the generated CMB file is 10.4 MiB versus 28.8 MiB
