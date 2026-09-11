@@ -28,5 +28,8 @@ coverage.xml
 # NOTE: tests/goldens/ is deliberately NOT ignored. Those committed bytes are
 # the format's reference -- they are the whole point of this repository.
 
+# Generated output from the optional GemPy example
+/examples/output/
+
 # Local Claude Code instructions -- not meant to be committed
 /CLAUDE.md

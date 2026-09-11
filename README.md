@@ -71,6 +71,13 @@ including nested base-mesh geometry. Its three results match `write_file`'s
 preserves the mesh geometry, model arrays, and metadata. The NumPy arrays are
 read-only; use `.copy()` if you need to modify them.
 
+For a self-contained geological modeling workflow, see the
+[GemPy to CMB example](examples/README.md). It builds synthetic dipping
+layers, samples GemPy at discretize TensorMesh cell centers, and records
+lithology and physical-property metadata. The optional GemPy, discretize, and
+Matplotlib dependencies are documented there and are not package runtime
+requirements.
+
 To read individual arrays without loading the whole file:
 
 ```python
