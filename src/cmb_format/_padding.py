@@ -1,9 +1,10 @@
-"""Normalize and validate optional visualization padding.
+"""Normalize and validate named visualization padding.
 
-The canonical order is ``[west, east, south, north, bottom, top]``, as defined
-in ``docs/binary-format.md``.
+Padding mappings use west, east, south, north, bottom, and top names. Values
+are normalized to non-negative Python integers with shared shape validation.
 """
 
+from collections.abc import Mapping
 from numbers import Integral, Real
 
 import numpy as np
@@ -64,50 +65,65 @@ def normalize_integer_array(
     return np.asarray(normalized, dtype=np.int64)
 
 
-def normalize_default_padding(
-    default_padding: ArrayLike | None,
-) -> NDArray[np.integer] | None:
-    """Return read-only int64 padding in canonical order, or None when absent.
+_PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
+_PADDING_NAME_SET = frozenset(_PADDING_NAMES)
 
-    Requires six non-negative integer values ordered as
-    ``[west, east, south, north, bottom, top]``.
+
+def _normalize_padding_value(value, *, name: str) -> int:
+    if isinstance(value, np.ndarray):
+        if value.shape != ():
+            raise ValueError(f"{name} must be a scalar integer")
+        value = value.item()
+    normalized = normalize_integer_array(
+        [value], name=name, shape=(1,), minimum=0, value_description="integer values"
+    )
+    return int(normalized[0])
+
+
+def normalize_default_padding(
+    default_padding: Mapping[str, object] | None,
+) -> dict[str, int] | None:
+    """Return a fresh complete named padding mapping, or ``None``.
+
+    Mapping values are finite, integer-valued, non-negative numbers. Omitted
+    names default to zero; unknown names and positional sequences are rejected.
     """
     if default_padding is None:
         return None
-    normalized = normalize_integer_array(
-        default_padding,
-        name="default_padding",
-        shape=(6,),
-        minimum=0,
-    )
-
-    # Keep immutable backing storage as well as marking the view read-only:
-    # callers cannot opt back into writability with ``setflags(write=True)``
-    # on the returned public array.
-    result = np.frombuffer(
-        np.asarray(normalized, dtype=np.int64).tobytes(), dtype=np.int64
-    )
-    result.setflags(write=False)
-    return result
+    if not isinstance(default_padding, Mapping):
+        raise ValueError(
+            "default_padding must be a mapping with named west/east/south/north/"
+            "bottom/top values"
+        )
+    unknown = [name for name in default_padding if name not in _PADDING_NAME_SET]
+    if unknown:
+        raise ValueError(f"default_padding has unknown name(s): {unknown!r}")
+    return {
+        name: _normalize_padding_value(
+            default_padding.get(name, 0), name=f"default_padding[{name!r}]"
+        )
+        for name in _PADDING_NAMES
+    }
 
 
 def validate_default_padding_shape(
-    default_padding: NDArray[np.integer] | None, shape: ArrayLike
+    default_padding: Mapping[str, object] | None, shape: ArrayLike
 ) -> None:
-    """Validate opposing padding sides against a three-axis shape."""
-    if default_padding is None:
+    """Validate opposing named padding sides against a three-axis shape."""
+    normalized = normalize_default_padding(default_padding)
+    if normalized is None:
         return
     shape_arr = np.asarray(shape)
     if shape_arr.shape != (3,):
         raise ValueError(f"mesh shape must have shape (3,), got {shape_arr.shape}")
     for side_a, side_b, axis, n_cells in zip(
-        default_padding[::2],
-        default_padding[1::2],
+        (normalized["west"], normalized["south"], normalized["bottom"]),
+        (normalized["east"], normalized["north"], normalized["top"]),
         ("x", "y", "z"),
         shape_arr,
         strict=True,
     ):
-        if int(side_a) + int(side_b) > int(n_cells):
+        if side_a + side_b > int(n_cells):
             raise ValueError(
                 f"default_padding {axis}-axis opposing sides exceed "
                 f"the mesh shape ({int(n_cells)} cells)"

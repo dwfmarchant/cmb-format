@@ -11,6 +11,12 @@ import cmb_format as cmb
 from cases import CASES, build_bytes
 from cmb_format._codec import sha256_hex
 
+_PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
+
+
+def named_padding(values):
+    return dict(zip(_PADDING_NAMES, values, strict=True))
+
 
 def fresh_case(case_name):
     """Return an independent copy of a named golden case."""

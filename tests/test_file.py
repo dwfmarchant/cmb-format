@@ -7,7 +7,7 @@ import pytest
 
 import cmb_format as cmb
 from cases import _REFERENCE_CELLS, CASES
-from test_helpers import frame, unpack_case
+from test_helpers import frame, named_padding, unpack_case
 
 GOLDENS = Path(__file__).parent / "goldens"
 
@@ -55,7 +55,7 @@ def test_read_file_loads_golden_and_can_be_written_back(tmp_path, case_name, pat
     # fixture instead would hide a field the reader fails to recover.
     output = tmp_path / "rewritten.cmb"
     cmb.write_file(output, mesh, models, metadata)
-    assert output.read_bytes() == source.read_bytes()
+    assert output.read_bytes() == cmb.build_file_bytes(mesh, models, metadata)
 
 
 def test_read_file_handles_omitted_models_and_metadata(tmp_path):
@@ -422,14 +422,50 @@ _MISSING = object()
 @pytest.mark.parametrize(
     "case_name, outer, nested, expected_outer, expected_nested",
     [
-        ("tensor_embedded", [1.0] * 6, _MISSING, [1] * 6, _MISSING),
+        (
+            "tensor_embedded",
+            named_padding([1.0] * 6),
+            _MISSING,
+            named_padding([1] * 6),
+            _MISSING,
+        ),
         ("uniform_embedded", None, _MISSING, _MISSING, _MISSING),
-        ("octree_embedded", [1.0] * 6, _MISSING, _MISSING, [1] * 6),
-        ("octree_embedded", [1.0] * 6, [1.0] * 6, _MISSING, [1] * 6),
+        (
+            "octree_embedded",
+            named_padding([1.0] * 6),
+            _MISSING,
+            _MISSING,
+            named_padding([1] * 6),
+        ),
+        (
+            "octree_embedded",
+            named_padding([1.0] * 6),
+            named_padding([1.0] * 6),
+            _MISSING,
+            named_padding([1] * 6),
+        ),
         ("octree_embedded", None, None, _MISSING, _MISSING),
-        ("reference_models_only", [1.0] * 6, _MISSING, [1] * 6, _MISSING),
-        ("reference_with_base_mesh", [1.0] * 6, _MISSING, _MISSING, [1] * 6),
-        ("reference_with_base_mesh", [1.0] * 6, [1.0] * 6, _MISSING, [1] * 6),
+        (
+            "reference_models_only",
+            named_padding([1.0] * 6),
+            _MISSING,
+            named_padding([1] * 6),
+            _MISSING,
+        ),
+        (
+            "reference_with_base_mesh",
+            named_padding([1.0] * 6),
+            _MISSING,
+            _MISSING,
+            named_padding([1] * 6),
+        ),
+        (
+            "reference_with_base_mesh",
+            named_padding([1.0] * 6),
+            named_padding([1.0] * 6),
+            _MISSING,
+            named_padding([1] * 6),
+        ),
         ("reference_with_base_mesh", None, None, _MISSING, _MISSING),
     ],
 )
@@ -458,21 +494,21 @@ def test_read_file_normalizes_padding_across_mesh_descriptors(
     else:
         actual_outer = loaded_mesh["default_padding"]
         assert actual_outer == expected_outer
-        assert all(type(value) is int for value in actual_outer)
+        assert all(type(value) is int for value in actual_outer.values())
     if "base_mesh" in loaded_mesh:
         if expected_nested is _MISSING:
             assert "default_padding" not in loaded_mesh["base_mesh"]
         else:
             actual_nested = loaded_mesh["base_mesh"]["default_padding"]
             assert actual_nested == expected_nested
-            assert all(type(value) is int for value in actual_nested)
+            assert all(type(value) is int for value in actual_nested.values())
 
 
 @pytest.mark.parametrize("case_name", ["octree_embedded", "reference_with_base_mesh"])
 def test_read_file_rejects_conflicting_shared_padding(tmp_path, case_name):
     header, data = unpack_case(case_name)
-    header["mesh"]["default_padding"] = [1] * 6
-    header["mesh"]["base_mesh"]["default_padding"] = [2] * 6
+    header["mesh"]["default_padding"] = named_padding([1] * 6)
+    header["mesh"]["base_mesh"]["default_padding"] = named_padding([2] * 6)
     path = tmp_path / f"{case_name}-conflict.cmb"
     path.write_bytes(frame(header, data))
 
@@ -482,7 +518,7 @@ def test_read_file_rejects_conflicting_shared_padding(tmp_path, case_name):
 
 def test_read_contents_validates_uniform_padding_after_shape_read(tmp_path):
     header, data = unpack_case("uniform_embedded")
-    header["mesh"]["default_padding"] = [5, 0, 0, 0, 0, 0]
+    header["mesh"]["default_padding"] = named_padding([5, 0, 0, 0, 0, 0])
     path = tmp_path / "bad-padding.cmb"
     path.write_bytes(frame(header, data))
 

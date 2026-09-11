@@ -3,17 +3,19 @@
 Notable changes to `cmb-format`, the Python reference implementation.
 
 This file tracks the **package**. The CMB **format** versions separately —
-see `docs/binary-format.md`'s Versioning section. Which format versions a
-build handles is stated in code, as `WRITTEN_FORMAT_VERSION` and
-`READABLE_FORMAT_VERSIONS`.
+see the [format changelog](FORMAT_CHANGELOG.md) and `docs/binary-format.md`'s
+Versioning section. Which format versions a build handles is stated in code,
+as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
 ## [Unreleased]
 
 - Add selective model loading to `read_file`.
 - Add `list_models` and `read_contents` for inspection without loading model
-  payloads, with
-  only an embedded uniform mesh shape read when needed for its cell count.
+  payloads, with only an embedded uniform mesh shape read when needed for its
+  cell count.
 - Preserve raw array order and normalize shared descriptor padding on full reads.
+- Replace positional padding with named mappings and write CMB v2 headers.
+- Read CMB v1 padding through a single header-boundary compatibility adapter.
 
 ## [0.1.0]
 

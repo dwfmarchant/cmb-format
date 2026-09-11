@@ -15,7 +15,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import cmb_format as cmb
 from cases import CASES, build_bytes
 
-GOLDENS = pathlib.Path(__file__).parent / "goldens"
+GOLDENS = pathlib.Path(__file__).parent / "goldens" / "v2"
 
 
 def main():

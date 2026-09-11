@@ -7,7 +7,7 @@ import pytest
 
 import cmb_format as cmb
 from cmb_format._codec import sha256_hex
-from test_helpers import frame, fresh_mesh, mutate, unpack_case
+from test_helpers import frame, fresh_mesh, mutate, named_padding, unpack_case
 
 MESH_CASES = {
     "TensorMesh": "tensor_embedded",
@@ -266,12 +266,12 @@ def test_reader_rejects_reference_count_and_inference_failures():
 
 def test_reader_rejects_bad_padding_values_and_conflicts():
     header, data = unpack_case("tensor_embedded")
-    header["mesh"]["default_padding"] = [True, 0, 0, 0, 0, 0]
+    header["mesh"]["default_padding"] = named_padding([True, 0, 0, 0, 0, 0])
     with pytest.raises(ValueError, match="padding"):
         cmb.read_header(io.BytesIO(frame(header, data)))
     header, data = unpack_case("octree_embedded")
-    header["mesh"]["default_padding"] = [1, 1, 1, 1, 1, 1]
-    header["mesh"]["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
+    header["mesh"]["default_padding"] = named_padding([1, 1, 1, 1, 1, 1])
+    header["mesh"]["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
     with pytest.raises(ValueError, match="match"):
         cmb.read_header(io.BytesIO(frame(header, data)))
 
@@ -420,8 +420,8 @@ def test_scalar_standalone_array_round_trips():
 
 def test_padding_conflict_is_rejected():
     mesh = fresh_mesh("octree_embedded")
-    mesh["default_padding"] = [1, 1, 1, 1, 1, 1]
-    mesh["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
+    mesh["default_padding"] = named_padding([1, 1, 1, 1, 1, 1])
+    mesh["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
     with pytest.raises(ValueError, match="must match"):
         cmb.build_file_bytes(mesh)
 
@@ -429,7 +429,7 @@ def test_padding_conflict_is_rejected():
 @pytest.mark.parametrize(
     "padding",
     [
-        [True, 0, 0, 0, 0, 0],
+        named_padding([True, 0, 0, 0, 0, 0]),
         [1, 2, 3],
         [np.inf] * 6,
         [np.nan] * 6,
@@ -565,6 +565,6 @@ def test_octree_position_and_base_shape_support_int64():
 
 
 def test_padding_shape_check_requires_three_axes():
-    padding = cmb.normalize_default_padding([0] * 6)
+    padding = cmb.normalize_default_padding(named_padding([0] * 6))
     with pytest.raises(ValueError, match="mesh shape must have shape"):
         cmb.validate_default_padding_shape(padding, [2, 2])

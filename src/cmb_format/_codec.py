@@ -9,11 +9,13 @@ import math
 import os
 import re
 import struct
+from collections.abc import Mapping
 from numbers import Integral
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from cmb_format._compat import normalize_header_padding
 from cmb_format._padding import (
     normalize_default_padding,
     normalize_integer_array,
@@ -51,8 +53,8 @@ MAGIC = b"CELLMODB"
 
 # An integer counter of incompatible wire changes, unrelated to this
 # package's own version. See docs/binary-format.md's Versioning section.
-WRITTEN_FORMAT_VERSION = 1
-READABLE_FORMAT_VERSIONS = frozenset({1})
+WRITTEN_FORMAT_VERSION = 2
+READABLE_FORMAT_VERSIONS = frozenset({1, 2})
 
 DTYPE_TO_NUMPY = {
     "float64": "<f8",
@@ -403,23 +405,23 @@ def padding_belongs_to_base_mesh(mesh_dict: dict) -> bool:
 
 
 def padding_as_json(
-    value: ArrayLike | None, shape: tuple[int, int, int] | None = None
-) -> list[int] | None:
-    """Normalize a padding field and validate it against an optional shape."""
+    value: Mapping[str, object] | None, shape: tuple[int, int, int] | None = None
+) -> dict[str, int] | None:
+    """Normalize named padding and validate it against an optional shape."""
     if value is None:
         return None
     padding = normalize_default_padding(value)
     if shape is not None:
         validate_default_padding_shape(padding, shape)
-    return padding.tolist()
+    return padding
 
 
 def resolve_shared_padding(
-    outer: ArrayLike | None,
-    nested: ArrayLike | None,
+    outer: Mapping[str, object] | None,
+    nested: Mapping[str, object] | None,
     shape: tuple[int, int, int] | None = None,
-) -> list[int] | None:
-    """Resolve outer and nested padding to one JSON list.
+) -> dict[str, int] | None:
+    """Resolve outer and nested named padding to one complete dictionary.
 
     The nested base mesh owns the canonical setting. Use its value when
     present, or the outer value as a fallback. If both are present, their
@@ -430,13 +432,13 @@ def resolve_shared_padding(
     if (
         outer_padding is not None
         and nested_padding is not None
-        and not np.array_equal(outer_padding, nested_padding)
+        and outer_padding != nested_padding
     ):
         raise ValueError("outer and nested default_padding values must match")
     padding = nested_padding if nested_padding is not None else outer_padding
     if padding is not None and shape is not None:
         validate_default_padding_shape(padding, shape)
-    return None if padding is None else padding.tolist()
+    return padding
 
 
 def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
@@ -626,7 +628,9 @@ def read_header(
 ) -> tuple[dict, int]:
     """Read and structurally validate a CMB file's trailing JSON header.
 
-    The default ``read_shape_payload=True`` checks the file framing, header
+    The returned header normalizes v1 list padding and v2 object padding to
+    complete named dictionaries; its ``format_version`` remains the stored
+    version. The default ``read_shape_payload=True`` checks the file framing, header
     schema, array descriptor bounds, mesh descriptors, and that every model is one
     value per cell. It reads and checksum-verifies a three-element ``shape``
     array when a ``UniformTensorMesh`` needs its values for cell counts and
@@ -681,6 +685,7 @@ def read_header(
     mesh = header.get("mesh")
     if not isinstance(mesh, dict):
         raise ValueError("CMB header 'mesh' must be an object")
+    normalize_header_padding(header)
     data_size = header_start - data_start
     for name, entry in models.items():
         if not isinstance(entry, dict):
@@ -866,7 +871,9 @@ def _validate_parsed_mesh(
             read_shape_payload=read_shape_payload,
         )
         resolve_shared_padding(
-            mesh.get("default_padding"), mesh["base_mesh"].get("default_padding"), shape
+            mesh.get("default_padding"),
+            mesh["base_mesh"].get("default_padding"),
+            shape,
         )
         return value
     if "base_mesh" in mesh:

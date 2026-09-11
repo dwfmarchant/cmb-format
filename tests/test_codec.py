@@ -9,7 +9,13 @@ import pytest
 import cmb_format as cmb
 from cases import CASES, build_bytes
 from cmb_format._codec import array_dtype_name
-from test_helpers import forge_model_shape, frame, mutate, unpack_case
+from test_helpers import (
+    forge_model_shape,
+    frame,
+    mutate,
+    named_padding,
+    unpack_case,
+)
 
 VALID = build_bytes(CASES["tensor_with_models"])
 
@@ -41,6 +47,43 @@ def test_rejects_an_unsupported_format_version():
     # Replace the header because the writer always stamps WRITTEN_FORMAT_VERSION.
     with pytest.raises(ValueError, match="unsupported CMB format_version"):
         cmb.read_header(_reader(mutate("tensor_embedded", ["format_version"], 999)))
+
+
+def test_read_header_normalizes_v1_padding_at_the_boundary():
+    header, data = unpack_case("octree_base_padding_models")
+    expected = header["mesh"]["base_mesh"]["default_padding"]
+    header["format_version"] = 1
+    header["mesh"]["base_mesh"]["default_padding"] = [
+        expected[name] for name in ("west", "east", "south", "north", "bottom", "top")
+    ]
+
+    parsed, _ = cmb.read_header(_reader(frame(header, data)))
+
+    assert parsed["format_version"] == 1
+    assert parsed["mesh"]["base_mesh"]["default_padding"] == expected
+    assert all(
+        type(value) is int
+        for value in parsed["mesh"]["base_mesh"]["default_padding"].values()
+    )
+
+
+@pytest.mark.parametrize("value", [[1, 2, 3], [1, 2, 3, 4, 5, 6, 7], {"west": 1}])
+def test_read_header_rejects_malformed_v1_padding(value):
+    header, data = unpack_case("tensor_padding")
+    header["format_version"] = 1
+    header["mesh"]["default_padding"] = value
+
+    with pytest.raises(ValueError, match="CMB v1"):
+        cmb.read_header(_reader(frame(header, data)))
+
+
+@pytest.mark.parametrize("value", [[1, 2, 3, 4, 5, 6], {"west": 1}])
+def test_read_header_requires_complete_named_v2_padding(value):
+    header, data = unpack_case("tensor_padding")
+    header["mesh"]["default_padding"] = value
+
+    with pytest.raises(ValueError, match=r"CMB v2|invalid names"):
+        cmb.read_header(_reader(frame(header, data)))
 
 
 def test_version_constants_are_self_consistent():
@@ -107,7 +150,7 @@ def test_every_declared_dtype_round_trips(dtype_name):
 def test_padding_must_fit_the_mesh_it_describes():
     with pytest.raises(ValueError, match="exceed the mesh shape"):
         cmb.validate_default_padding_shape(
-            cmb.normalize_default_padding([5, 5, 0, 0, 0, 0]), (3, 3, 3)
+            cmb.normalize_default_padding(named_padding([5, 5, 0, 0, 0, 0])), (3, 3, 3)
         )
 
 
@@ -136,7 +179,9 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
     # Parsing preserves unknown fields while known fields remain usable.
     assert set(arrays) == {"level", "position"}
     assert parsed["mesh"]["mesh_class"] == "OctreeMesh"
-    assert parsed["mesh"]["base_mesh"]["default_padding"] == [1, 1, 1, 1, 1, 1]
+    assert parsed["mesh"]["base_mesh"]["default_padding"] == named_padding(
+        [1, 1, 1, 1, 1, 1]
+    )
     assert parsed["a_field_from_the_future"] == {"anything": [1, 2, 3]}
     assert parsed["mesh"]["unknown_mesh_key"] == "ignored"
     assert set(cmb.summarize_models(parsed)) == set(header["models"])

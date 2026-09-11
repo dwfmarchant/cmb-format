@@ -1,7 +1,7 @@
-# Cell Model Binary format (CMB) — v1 specification
+# Cell Model Binary format (CMB) — v1 and v2 specification
 
 CMB stores cell-based meshes and their models in `.cmb` files. This document
-is the normative v1 specification, independent of any implementation.
+is the normative specification for both versions, independent of any implementation.
 
 ## Design goals, and why
 
@@ -13,7 +13,7 @@ is the normative v1 specification, independent of any implementation.
 - **Efficient appends:** a trailing header allows new models to be added
   without rewriting existing array data.
 
-Arrays are uncompressed in v1.
+Arrays are uncompressed in v1 and v2.
 
 ## File layout
 
@@ -71,7 +71,7 @@ The header is a single JSON object:
 
 ```jsonc
 {
-  "format_version": 1,
+  "format_version": 2,
   "mesh": { /* mesh descriptor, embedded or reference — see below */ },
   "metadata": {},                        // arbitrary user key/values, any JSON
   "models": {
@@ -104,7 +104,10 @@ A mesh descriptor has two modes:
   "base_mesh": {                          // optional -- OctreeMesh reference only, see below
     "mesh_class": "UniformTensorMesh",
     "arrays": {...},
-    "default_padding": [0, 0, 0, 0, 0, 0] // optional shared padding
+    "default_padding": {                 // optional shared padding in v2
+      "west": 0, "east": 0, "south": 0,
+      "north": 0, "bottom": 0, "top": 0
+    }
   }
 }
 ```
@@ -128,20 +131,24 @@ but equal base grids do not establish that the octree refinements match.
 
 ### Default padding
 
-`default_padding` is optional visualization metadata, stored as a JSON list
-of six non-negative integers in the order
-`[west, east, south, north, bottom, top]`, also written
-`[x-, x+, y-, y+, z-, z+]`. Missing or explicit JSON `null` means no default
-padding. It is not a binary array and does not alter the geometry array
-key sets.
+`default_padding` is optional visualization metadata. CMB v2 stores it as a
+complete JSON object with the six required non-negative integer fields
+`west`, `east`, `south`, `north`, `bottom`, and `top`. Missing or explicit JSON
+`null` means no default padding. CMB v1 stores the same values as a six-value
+JSON list in the order `[west, east, south, north, bottom, top]`. Unknown or
+missing names are invalid in a v2 object. Padding is not a binary array and
+does not alter the geometry array key sets.
 
-For an embedded octree, padding belongs to the nested `base_mesh`; the
-outer descriptor does not repeat it. A reference descriptor with a
-`base_mesh` uses the same placement. For compatibility, readers/writers may
-accept an outer-only field and move it to the nested base. If both fields
-are supplied, they must normalize to the same six values or the descriptor
-is rejected. A bare reference without `base_mesh` may retain its outer
-padding field.
+The Python reference implementation normalizes both stored forms to a complete
+named dictionary in its returned header while preserving `format_version`.
+Other implementations may expose their own equivalent normalized API.
+
+For an embedded octree, padding belongs to the nested `base_mesh`; the outer
+descriptor does not repeat it. A reference descriptor with a `base_mesh` uses the
+same placement. Readers and writers may accept an outer-only field and move it
+to the nested base. If both fields are supplied, they must normalize to the same
+six values or the descriptor is rejected. A bare reference without `base_mesh`
+may retain its outer padding field.
 
 Where an axis shape is available, the two opposing padding values may sum
 to that axis's cell count but may not exceed it. A bare reference descriptor
@@ -174,9 +181,9 @@ at data-section offsets `[offset, offset + length)`, prefixed with `sha256:`.
 A reader verifies arrays it reads; it need not verify arrays it does not read.
 Verification of one array does not require reading any other array.
 
-All arrays in v1 are at most one-dimensional: `shape` has zero elements for
+All arrays in v1 and v2 are at most one-dimensional: `shape` has zero elements for
 a scalar or one element for a one-dimensional array. Multidimensional
-arrays are outside v1. Cell ordering is described
+arrays are outside v1 and v2. Cell ordering is described
 [below](#cell-numbering-ordering).
 
 ### Mesh classes
@@ -251,7 +258,9 @@ array descriptor. Each model is a one-dimensional array of length
 ## Validation a reader should perform
 
 - Trailing `magic` matches exactly; reject otherwise.
-- `format_version` is a version the reader understands.
+- `format_version` is a version the reader understands (`1` or `2`).
+- v2 padding objects require all six named fields and reject unknown names;
+  v1 padding lists contain exactly six values.
 - **Unknown keys are ignored.** Readers MUST tolerate unrecognized fields
   in the header, mesh descriptor, `base_mesh`, model entries, and array
   descriptors. This allows optional fields to be added without a version
@@ -283,10 +292,13 @@ alignment and tiling, is the receiving application's responsibility.
 ## Versioning
 
 `format_version` is an integer counter, independent of package versions.
+See the [format changelog](../FORMAT_CHANGELOG.md) for the format-only history.
 
 A format-version bump is required when removing, renaming, or retyping a
 required field; changing the byte layout, offsets, or trailer; changing
-dtype tokens; or changing the meaning of an existing field.
+dtype tokens; or changing the meaning of an existing field. Version 2 changes
+only the JSON representation of `default_padding`; array bytes, offsets,
+ordering, and the trailer remain unchanged.
 
 A bump is not required for optional fields that readers may ignore, or for
 user-defined entries in file or model `metadata`. Experimental metadata

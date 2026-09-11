@@ -122,7 +122,7 @@ def read_file(
         the geometry ``arrays`` are loaded as read-only NumPy arrays. A
         reference descriptor includes its ``n_cells``; no external mesh is
         loaded, and any unrecognized ``arrays`` key it carries is passed
-        through unconverted. Valid padding is normalized to integer lists;
+        through unconverted. Valid padding is normalized to complete named dictionaries;
         shared padding is canonicalized onto a nested ``base_mesh`` and an
         explicit ``null`` padding field is omitted.
     models : dict

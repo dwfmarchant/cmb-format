@@ -9,6 +9,12 @@ import numpy as np
 
 import cmb_format as cmb
 
+_PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
+
+
+def _padding(values):
+    return dict(zip(_PADDING_NAMES, values, strict=True))
+
 
 def _tensor(padding=None):
     d = {
@@ -22,7 +28,7 @@ def _tensor(padding=None):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = _padding(padding)
     return d
 
 
@@ -37,7 +43,7 @@ def _uniform(padding=None):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = _padding(padding)
     return d
 
 
@@ -51,7 +57,7 @@ def _base_mesh(padding=None, shape=(4, 4, 4)):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = _padding(padding)
     return d
 
 
