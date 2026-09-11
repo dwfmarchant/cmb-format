@@ -38,7 +38,6 @@ __all__ = [
     "read_arrays",
     "read_header",
     "resolve_reference_n_cells",
-    "resolve_shared_padding",
     "serialize_array",
     "serialize_arrays",
     "serialize_mesh",
@@ -243,11 +242,6 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
             base_shape = _validate_raw_base_mesh(
                 mesh["base_mesh"], context="OctreeMesh base_mesh"
             )
-            resolve_shared_padding(
-                mesh.get("default_padding"),
-                mesh["base_mesh"].get("default_padding"),
-                base_shape,
-            )
             return int(shape_or_count), base_shape
         if "base_mesh" in mesh:
             raise ValueError(f"{mesh_class} does not support base_mesh")
@@ -263,9 +257,6 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be a mapping")
         shape = _validate_raw_base_mesh(base, context="reference base_mesh")
-        resolve_shared_padding(
-            mesh.get("default_padding"), base.get("default_padding"), shape
-        )
         return n_cells, shape
     raise ValueError(f"unsupported mesh mode for serialization: {mode!r}")
 
@@ -416,31 +407,6 @@ def padding_as_json(
     return padding
 
 
-def resolve_shared_padding(
-    outer: Mapping[str, object] | None,
-    nested: Mapping[str, object] | None,
-    shape: tuple[int, int, int] | None = None,
-) -> dict[str, int] | None:
-    """Resolve outer and nested named padding to one complete dictionary.
-
-    The nested base mesh owns the canonical setting. Use its value when
-    present, or the outer value as a fallback. If both are present, their
-    normalized values must match. An optional shape bounds each opposing pair.
-    """
-    outer_padding = normalize_default_padding(outer)
-    nested_padding = normalize_default_padding(nested)
-    if (
-        outer_padding is not None
-        and nested_padding is not None
-        and outer_padding != nested_padding
-    ):
-        raise ValueError("outer and nested default_padding values must match")
-    padding = nested_padding if nested_padding is not None else outer_padding
-    if padding is not None and shape is not None:
-        validate_default_padding_shape(padding, shape)
-    return padding
-
-
 def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
     """Append a mesh's geometry arrays to buffer and return its descriptor.
 
@@ -469,22 +435,13 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
         }
 
     base = base_mesh_descriptor(mesh_dict)
-    has_shared_padding = padding_belongs_to_base_mesh(mesh_dict)
-    if has_shared_padding:
-        # An octree and its base mesh share one padding setting, stored on
-        # the base descriptor. A value found on the outer descriptor instead
-        # is moved there.
-        shared_padding = resolve_shared_padding(
-            mesh_dict.get("default_padding"),
-            base.get("default_padding"),
-            raw_mesh_shape(mesh_dict),
-        )
-        padding = None
-    else:
-        shared_padding = None
-        padding = padding_as_json(
+    padding = (
+        None
+        if base is not None
+        else padding_as_json(
             mesh_dict.get("default_padding"), raw_mesh_shape(mesh_dict)
         )
+    )
     if padding is not None:
         header["default_padding"] = padding
     if isinstance(base, dict):
@@ -492,12 +449,9 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
             "mesh_class": base["mesh_class"],
             "arrays": serialize_arrays(base["arrays"], buffer),
         }
-        if has_shared_padding:
-            base_padding = shared_padding
-        else:
-            base_padding = padding_as_json(
-                base.get("default_padding"), raw_mesh_shape(base)
-            )
+        base_padding = padding_as_json(
+            base.get("default_padding"), raw_mesh_shape(base)
+        )
         if base_padding is not None:
             base_header["default_padding"] = base_padding
         header["base_mesh"] = base_header
@@ -841,9 +795,6 @@ def _validate_parsed_mesh(
             context="reference base_mesh",
             read_shape_payload=read_shape_payload,
         )
-        resolve_shared_padding(
-            mesh.get("default_padding"), base.get("default_padding"), shape
-        )
         return n_cells
     if mode != "embedded":
         raise ValueError(f"unsupported mesh mode: {mode!r}")
@@ -862,18 +813,13 @@ def _validate_parsed_mesh(
     if mesh_class == "OctreeMesh":
         if "base_mesh" not in mesh:
             raise ValueError("OctreeMesh descriptor missing required key 'base_mesh'")
-        shape = _validate_parsed_base_mesh(
+        _validate_parsed_base_mesh(
             f,
             mesh["base_mesh"],
             data_start,
             data_size,
             context="OctreeMesh base_mesh",
             read_shape_payload=read_shape_payload,
-        )
-        resolve_shared_padding(
-            mesh.get("default_padding"),
-            mesh["base_mesh"].get("default_padding"),
-            shape,
         )
         return value
     if "base_mesh" in mesh:

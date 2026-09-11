@@ -13,9 +13,10 @@ as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 - Add `list_models` and `read_contents` for inspection without loading model
   payloads, with only an embedded uniform mesh shape read when needed for its
   cell count.
-- Preserve raw array order and normalize shared descriptor padding on full reads.
+- Preserve raw array order and normalize recognized descriptor padding on full reads.
 - Replace positional padding with named mappings and write CMB v2 headers.
 - Read CMB v1 padding through a single header-boundary compatibility adapter.
+- Recognize padding only on the nested base for octree and reference descriptors with a base; remove the reconciliation helper.
 
 ## [0.1.0]
 

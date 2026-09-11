@@ -75,8 +75,10 @@ including nested base-mesh geometry. Its three results match `write_file`'s
 preserves the mesh geometry, model arrays, and metadata. `default_padding`
 accepts a mapping with `west`, `east`, `south`, `north`, `bottom`, and `top`
 keys; omitted keys default to zero. Reads return a fresh complete dictionary of
-Python integers, with shared octree/reference padding on the nested base
-descriptor. The NumPy arrays are read-only; use `.copy()` if you need to modify
+Python integers. Octree and reference descriptors with a `base_mesh` keep
+padding only on that base descriptor; bare references may keep it on the
+reference descriptor.
+The NumPy arrays are read-only; use `.copy()` if you need to modify
 them. `models=None` loads every model, `models=[]` loads none, and duplicate
 selections collapse in stored file order.
 

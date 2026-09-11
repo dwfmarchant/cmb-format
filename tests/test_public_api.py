@@ -22,7 +22,6 @@ EXPECTED_PUBLIC_API = [
     "read_file",
     "read_header",
     "resolve_reference_n_cells",
-    "resolve_shared_padding",
     "serialize_array",
     "serialize_mesh",
     "summarize_models",

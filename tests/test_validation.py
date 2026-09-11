@@ -264,16 +264,20 @@ def test_reader_rejects_reference_count_and_inference_failures():
         )
 
 
-def test_reader_rejects_bad_padding_values_and_conflicts():
+def test_reader_validates_recognized_padding_and_ignores_outer_octree_data():
     header, data = unpack_case("tensor_embedded")
     header["mesh"]["default_padding"] = named_padding([True, 0, 0, 0, 0, 0])
     with pytest.raises(ValueError, match="padding"):
         cmb.read_header(io.BytesIO(frame(header, data)))
+
     header, data = unpack_case("octree_embedded")
-    header["mesh"]["default_padding"] = named_padding([1, 1, 1, 1, 1, 1])
+    header["mesh"]["default_padding"] = {"west": True}
     header["mesh"]["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
-    with pytest.raises(ValueError, match="match"):
-        cmb.read_header(io.BytesIO(frame(header, data)))
+    parsed, _ = cmb.read_header(io.BytesIO(frame(header, data)))
+    assert parsed["mesh"]["default_padding"] == {"west": True}
+    assert parsed["mesh"]["base_mesh"]["default_padding"] == named_padding(
+        [2, 2, 1, 1, 1, 1]
+    )
 
 
 @pytest.mark.parametrize("shape", [(6, 4, 4), (3, 3, 3), (12, 4, 4)])
@@ -418,12 +422,18 @@ def test_scalar_standalone_array_round_trips():
     assert result.flags.writeable is False
 
 
-def test_padding_conflict_is_rejected():
+def test_writer_ignores_outer_octree_padding_and_keeps_base_value():
     mesh = fresh_mesh("octree_embedded")
-    mesh["default_padding"] = named_padding([1, 1, 1, 1, 1, 1])
+    mesh["default_padding"] = {"west": True}
     mesh["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
-    with pytest.raises(ValueError, match="must match"):
-        cmb.build_file_bytes(mesh)
+
+    raw = cmb.build_file_bytes(mesh)
+    header, _ = cmb.read_header(io.BytesIO(raw))
+
+    assert "default_padding" not in header["mesh"]
+    assert header["mesh"]["base_mesh"]["default_padding"] == named_padding(
+        [2, 2, 1, 1, 1, 1]
+    )
 
 
 @pytest.mark.parametrize(

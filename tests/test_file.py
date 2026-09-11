@@ -434,17 +434,17 @@ _MISSING = object()
             "octree_embedded",
             named_padding([1.0] * 6),
             _MISSING,
+            named_padding([1.0] * 6),
             _MISSING,
-            named_padding([1] * 6),
         ),
+        ("octree_embedded", None, None, None, _MISSING),
         (
             "octree_embedded",
             named_padding([1.0] * 6),
             named_padding([1.0] * 6),
-            _MISSING,
+            named_padding([1.0] * 6),
             named_padding([1] * 6),
         ),
-        ("octree_embedded", None, None, _MISSING, _MISSING),
         (
             "reference_models_only",
             named_padding([1.0] * 6),
@@ -456,20 +456,20 @@ _MISSING = object()
             "reference_with_base_mesh",
             named_padding([1.0] * 6),
             _MISSING,
+            named_padding([1.0] * 6),
             _MISSING,
-            named_padding([1] * 6),
         ),
+        ("reference_with_base_mesh", None, None, None, _MISSING),
         (
             "reference_with_base_mesh",
             named_padding([1.0] * 6),
             named_padding([1.0] * 6),
-            _MISSING,
+            named_padding([1.0] * 6),
             named_padding([1] * 6),
         ),
-        ("reference_with_base_mesh", None, None, _MISSING, _MISSING),
     ],
 )
-def test_read_file_normalizes_padding_across_mesh_descriptors(
+def test_read_file_normalizes_padding_by_descriptor_owner(
     tmp_path, case_name, outer, nested, expected_outer, expected_nested
 ):
     header, data = unpack_case(case_name)
@@ -491,29 +491,69 @@ def test_read_file_normalizes_padding_across_mesh_descriptors(
 
     if expected_outer is _MISSING:
         assert "default_padding" not in loaded_mesh
+    elif expected_outer is None:
+        assert loaded_mesh["default_padding"] is None
     else:
-        actual_outer = loaded_mesh["default_padding"]
-        assert actual_outer == expected_outer
-        assert all(type(value) is int for value in actual_outer.values())
-    if "base_mesh" in loaded_mesh:
-        if expected_nested is _MISSING:
-            assert "default_padding" not in loaded_mesh["base_mesh"]
-        else:
-            actual_nested = loaded_mesh["base_mesh"]["default_padding"]
-            assert actual_nested == expected_nested
-            assert all(type(value) is int for value in actual_nested.values())
+        assert loaded_mesh["default_padding"] == expected_outer
+    if expected_nested is _MISSING:
+        assert "default_padding" not in loaded_mesh.get("base_mesh", {})
+    else:
+        actual = loaded_mesh["base_mesh"]["default_padding"]
+        assert actual == expected_nested
+        assert all(type(value) is int for value in actual.values())
 
 
-@pytest.mark.parametrize("case_name", ["octree_embedded", "reference_with_base_mesh"])
-def test_read_file_rejects_conflicting_shared_padding(tmp_path, case_name):
+@pytest.mark.parametrize(
+    "version, case_name",
+    [
+        (1, "octree_embedded"),
+        (1, "reference_with_base_mesh"),
+        (2, "octree_embedded"),
+        (2, "reference_with_base_mesh"),
+    ],
+)
+def test_outer_shared_padding_is_unknown_across_versions(tmp_path, version, case_name):
     header, data = unpack_case(case_name)
-    header["mesh"]["default_padding"] = named_padding([1] * 6)
-    header["mesh"]["base_mesh"]["default_padding"] = named_padding([2] * 6)
-    path = tmp_path / f"{case_name}-conflict.cmb"
+    header["format_version"] = version
+    outer = {"west": True}
+    base_values = [1, 2, 1, 2, 1, 2]
+    base_padding = base_values if version == 1 else named_padding(base_values)
+    header["mesh"]["default_padding"] = outer
+    header["mesh"]["base_mesh"]["default_padding"] = base_padding
+    path = tmp_path / f"v{version}-{case_name}-outer-unknown.cmb"
     path.write_bytes(frame(header, data))
 
-    with pytest.raises(ValueError, match="must match"):
-        cmb.read_file(path, models=[])
+    expected_base = named_padding(base_values)
+    for read_shape_payload in (True, False):
+        with path.open("rb") as stream:
+            parsed, _ = cmb.read_header(stream, read_shape_payload=read_shape_payload)
+        assert parsed["mesh"]["default_padding"] == outer
+        assert parsed["mesh"]["base_mesh"]["default_padding"] == expected_base
+
+    loaded_mesh, _, _ = cmb.read_file(path, models=[])
+    assert loaded_mesh["default_padding"] == outer
+    assert loaded_mesh["base_mesh"]["default_padding"] == expected_base
+    assert set(cmb.list_models(path)) == set(header["models"])
+    contents = cmb.read_contents(path)
+    assert contents["has_base_mesh"] is True
+    assert set(contents["models"]) == set(header["models"])
+
+
+def test_v1_outer_only_shared_padding_is_not_relocated(tmp_path):
+    header, data = unpack_case("octree_embedded")
+    header["format_version"] = 1
+    header["mesh"]["default_padding"] = [1, 2, 1, 2, 1, 2]
+    header["mesh"]["base_mesh"].pop("default_padding", None)
+    path = tmp_path / "v1-outer-only.cmb"
+    path.write_bytes(frame(header, data))
+
+    with path.open("rb") as stream:
+        parsed, _ = cmb.read_header(stream)
+    assert parsed["mesh"]["default_padding"] == [1, 2, 1, 2, 1, 2]
+    assert "default_padding" not in parsed["mesh"]["base_mesh"]
+    loaded_mesh, _, _ = cmb.read_file(path, models=[])
+    assert loaded_mesh["default_padding"] == [1, 2, 1, 2, 1, 2]
+    assert "default_padding" not in loaded_mesh["base_mesh"]
 
 
 def test_read_contents_validates_uniform_padding_after_shape_read(tmp_path):

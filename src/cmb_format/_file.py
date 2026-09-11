@@ -18,13 +18,11 @@ from cmb_format._codec import (
     _validate_raw_mesh,
     base_mesh_descriptor,
     padding_as_json,
-    padding_belongs_to_base_mesh,
     raw_mesh_shape,
     read_array,
     read_arrays,
     read_header,
     resolve_reference_n_cells,
-    resolve_shared_padding,
     serialize_array,
     serialize_mesh,
     summarize_models,
@@ -65,32 +63,16 @@ def _select_model_names(
 
 
 def _normalize_read_mesh_padding(mesh: dict) -> None:
-    """Canonicalize padding placement and values in a loaded mesh descriptor."""
+    """Canonicalize normalized padding values in a loaded mesh descriptor."""
     base = base_mesh_descriptor(mesh)
-    if padding_belongs_to_base_mesh(mesh):
-        shape = raw_mesh_shape(mesh)
-        shared = resolve_shared_padding(
-            mesh.get("default_padding"), base.get("default_padding"), shape
-        )
-        if shared is None:
-            base.pop("default_padding", None)
-        else:
-            base["default_padding"] = shared
-        mesh.pop("default_padding", None)
+    owner = base if base is not None else mesh
+    if "default_padding" not in owner:
         return
-
-    if "default_padding" in mesh:
-        padding = padding_as_json(mesh.get("default_padding"), raw_mesh_shape(mesh))
-        if padding is None:
-            mesh.pop("default_padding", None)
-        else:
-            mesh["default_padding"] = padding
-    if base is not None and "default_padding" in base:
-        padding = padding_as_json(base.get("default_padding"), raw_mesh_shape(base))
-        if padding is None:
-            base.pop("default_padding", None)
-        else:
-            base["default_padding"] = padding
+    padding = padding_as_json(owner.get("default_padding"), raw_mesh_shape(owner))
+    if padding is None:
+        owner.pop("default_padding", None)
+    else:
+        owner["default_padding"] = padding
 
 
 def read_file(

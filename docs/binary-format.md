@@ -152,12 +152,10 @@ means no default padding; an object containing six zeros remains an explicit
 setting. Padding is not a binary array and does not alter the geometry array
 key sets.
 
-For an embedded octree, padding belongs to the nested `base_mesh`; the outer
-descriptor does not repeat it. A reference descriptor with a `base_mesh` uses the
-same placement. Readers and writers may accept an outer-only field and move it
-to the nested base. If both fields are supplied, they must normalize to the same
-six values or the descriptor is rejected. A bare reference without `base_mesh`
-may retain its outer padding field.
+For an embedded octree, padding belongs to the nested `base_mesh`; an outer
+`default_padding` entry is unrecognized and ignored. A reference descriptor with
+a `base_mesh` uses the same placement. A bare reference without `base_mesh` may
+retain its outer padding field.
 
 Where an axis shape is available, the two opposing padding values may sum
 to that axis's cell count but may not exceed it. A bare reference descriptor
@@ -270,6 +268,8 @@ array descriptor. Each model is a one-dimensional array of length
 - A non-null `default_padding` value is an object with all six named fields,
   no unknown names, and non-negative integer values. Validate opposing counts
   against the axis shape where available (see [Default padding](#default-padding)).
+  An embedded octree or reference descriptor with `base_mesh` stores this field
+  only on the nested base descriptor; an outer entry is ignored as unknown.
 - **Unknown keys are ignored.** Readers MUST tolerate unrecognized fields
   in the header, mesh descriptor, `base_mesh`, model entries, and array
   descriptors. This allows optional fields to be added without a version
@@ -342,19 +342,20 @@ change without changing the format's meaning.
 
 ### CMB v1
 
-A v1 file sets `format_version` to `1`. Its only schema difference from v2
-is the representation of `default_padding`: a non-null value must be a
-six-element JSON list in this order:
+A v1 file sets `format_version` to `1`. When present and non-null,
+`default_padding` is a six-element JSON list in this order:
 
 ```text
 [west, east, south, north, bottom, top]
 ```
 
 Each value is a non-negative integer. Named objects are not valid v1 padding.
-The placement of padding, opposing-count limits, and meaning of missing,
-null, or all-zero padding are the same as in v2. File framing, array
-descriptors, payload bytes, checksums, geometry schemas, and cell ordering
-are also unchanged.
+Padding follows the same recognized-owner rule in v1: octree and reference
+files with a `base_mesh` use only the nested base field, while an outer entry is
+unrecognized and ignored. Missing or null padding, explicit all-zero padding,
+and opposing-count limits have the same meaning as in v2. File framing, array
+descriptors, payload bytes, checksums, geometry schemas, and cell ordering are
+unchanged.
 
 The Python reference implementation reads v1 and v2 and writes only v2.
 When reading v1, it converts padding lists to named dictionaries before

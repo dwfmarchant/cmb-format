@@ -37,20 +37,32 @@ def _normalize_field(value, *, format_version: int, context: str):
         raise ValueError(f"invalid {context}: {exc}") from exc
 
 
+def _shared_padding_descriptor(mesh: dict) -> bool:
+    return "base_mesh" in mesh and (
+        mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
+    )
+
+
 def normalize_header_padding(header: dict) -> None:
-    """Normalize every stored header padding field to a named dictionary."""
-    format_version = header["format_version"]
+    """Normalize each descriptor's recognized stored padding field.
+
+    For octree and reference descriptors with a base mesh, an outer
+    ``default_padding`` entry is unknown data and remains untouched. The
+    nested base field is the only recognized owner.
+    """
     mesh = header["mesh"]
+    base = mesh.get("base_mesh")
+    if _shared_padding_descriptor(mesh):
+        if isinstance(base, dict) and "default_padding" in base:
+            base["default_padding"] = _normalize_field(
+                base["default_padding"],
+                format_version=header["format_version"],
+                context="base_mesh.default_padding",
+            )
+        return
     if "default_padding" in mesh:
         mesh["default_padding"] = _normalize_field(
             mesh["default_padding"],
-            format_version=format_version,
+            format_version=header["format_version"],
             context="mesh.default_padding",
-        )
-    base = mesh.get("base_mesh")
-    if isinstance(base, dict) and "default_padding" in base:
-        base["default_padding"] = _normalize_field(
-            base["default_padding"],
-            format_version=format_version,
-            context="base_mesh.default_padding",
         )
