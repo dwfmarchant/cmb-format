@@ -142,6 +142,28 @@ def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):
     assert set(cmb.summarize_models(parsed)) == set(header["models"])
 
 
+def test_read_header_can_defer_uniform_shape_payload():
+    header, data = unpack_case("uniform_embedded")
+    shape = header["mesh"]["arrays"]["shape"]
+    raw = bytearray(frame(header, data))
+    raw[8 + shape["offset"]] ^= 0xFF
+
+    parsed, data_start = cmb.read_header(_reader(bytes(raw)), read_shape_payload=False)
+    assert parsed["mesh"]["mesh_class"] == "UniformTensorMesh"
+    assert data_start == 8
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        cmb.read_header(_reader(bytes(raw)))
+
+
+def test_read_header_can_defer_uniform_model_count_validation():
+    raw = forge_model_shape("uniform_padding_models", [7])
+
+    parsed, _ = cmb.read_header(_reader(raw), read_shape_payload=False)
+    assert parsed["models"]["rho"]["array"]["shape"] == [7]
+    with pytest.raises(ValueError, match="one value per cell"):
+        cmb.read_header(_reader(raw))
+
+
 @pytest.mark.parametrize(
     "case_name",
     ["tensor_with_models", "uniform_padding_models", "octree_base_padding_models"],

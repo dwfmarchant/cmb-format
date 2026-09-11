@@ -619,15 +619,27 @@ def read_arrays(f, data_start: int, descriptors: dict) -> dict:
     return {name: read_array(f, data_start, d) for name, d in descriptors.items()}
 
 
-def read_header(f) -> tuple[dict, int]:
-    """Read a CMB file's trailing JSON header from an open binary file.
+def read_header(
+    f,
+    *,
+    read_shape_payload: bool = True,
+) -> tuple[dict, int]:
+    """Read and structurally validate a CMB file's trailing JSON header.
 
-    Checks the file framing, header schema, array descriptor bounds, mesh
-    geometry, and that every model is one value per cell. It reads and
-    checksum-verifies a three-element ``shape`` array when a
-    ``UniformTensorMesh`` needs its values for cell counts and padding checks
-    (12 bytes for int32 or 24 bytes for int64), so this function may raise an
-    array checksum error. Other array payloads remain unread and unverified.
+    The default ``read_shape_payload=True`` checks the file framing, header
+    schema, array descriptor bounds, mesh descriptors, and that every model is one
+    value per cell. It reads and checksum-verifies a three-element ``shape``
+    array when a ``UniformTensorMesh`` needs its values for cell counts and
+    padding checks (12 bytes for int32 or 24 bytes for int64), so the default
+    call may raise an array checksum error. Other array payloads remain unread
+    and unverified.
+
+    With ``read_shape_payload=False``, structural header and descriptor checks
+    still run without reading any shape payload. Shape values and validations
+    dependent on them, such as uniform padding and model counts, are deferred
+    to the caller; counts available directly from the header remain checked.
+    Array payloads are not read or checksum-verified. This mode supports cheap
+    header inspection.
 
     Returns ``(header, data_start)``, where ``data_start`` is byte 8 and array
     offsets are relative to it. Changes the file position.
@@ -680,8 +692,15 @@ def read_header(f) -> tuple[dict, int]:
         )
         if len(shape) != 1:
             raise ValueError(f"model {name!r} must be a 1D array, got shape {shape!r}")
-    n_cells = _validate_parsed_mesh(f, mesh, data_start, data_size)
-    validate_model_lengths(models, n_cells)
+    n_cells = _validate_parsed_mesh(
+        f,
+        mesh,
+        data_start,
+        data_size,
+        read_shape_payload=read_shape_payload,
+    )
+    if n_cells is not None:
+        validate_model_lengths(models, n_cells)
     return header, data_start
 
 
@@ -693,6 +712,7 @@ def _parsed_geometry_arrays(
     data_size: int | None,
     *,
     context: str,
+    read_shape_payload: bool,
 ):
     if not isinstance(arrays, dict):
         raise ValueError(f"{context} arrays must be an object")
@@ -742,6 +762,8 @@ def _parsed_geometry_arrays(
         require("origin", dtype=("float64",), shape=[3])
         require("cell_size", dtype=("float64",), shape=[3])
         require("shape", dtype=("int32", "int64"), shape=[3])
+        if not read_shape_payload:
+            return None
         values = read_array(f, data_start, arrays["shape"])
         normalized = normalize_integer_array(
             values,
@@ -762,8 +784,14 @@ def _parsed_geometry_arrays(
 
 
 def _validate_parsed_base_mesh(
-    f, base: dict, data_start: int, data_size: int | None, *, context: str
-) -> tuple[int, int, int]:
+    f,
+    base: dict,
+    data_start: int,
+    data_size: int | None,
+    *,
+    context: str,
+    read_shape_payload: bool,
+) -> tuple[int, int, int] | None:
     if not isinstance(base, dict):
         raise ValueError(f"{context} must be an object")
     if base.get("mesh_class") != "UniformTensorMesh":
@@ -775,13 +803,22 @@ def _validate_parsed_base_mesh(
         data_start,
         data_size,
         context=context,
+        read_shape_payload=read_shape_payload,
     )
-    _validate_power_of_two_shape(shape, context=context)
+    if shape is not None:
+        _validate_power_of_two_shape(shape, context=context)
     padding_as_json(base.get("default_padding"), shape)
     return shape
 
 
-def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None) -> int:
+def _validate_parsed_mesh(
+    f,
+    mesh: dict,
+    data_start: int,
+    data_size: int | None,
+    *,
+    read_shape_payload: bool,
+) -> int | None:
     mode = mesh.get("mode")
     if mode == "reference":
         n_cells = _nonnegative_integer(mesh.get("n_cells"), name="reference n_cells")
@@ -792,7 +829,12 @@ def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None)
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be an object")
         shape = _validate_parsed_base_mesh(
-            f, base, data_start, data_size, context="reference base_mesh"
+            f,
+            base,
+            data_start,
+            data_size,
+            context="reference base_mesh",
+            read_shape_payload=read_shape_payload,
         )
         resolve_shared_padding(
             mesh.get("default_padding"), base.get("default_padding"), shape
@@ -804,13 +846,24 @@ def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None)
     if not isinstance(mesh_class, str) or mesh_class not in _MESH_CLASSES:
         raise ValueError(f"unsupported embedded mesh_class: {mesh_class!r}")
     value = _parsed_geometry_arrays(
-        f, mesh.get("arrays"), mesh_class, data_start, data_size, context=mesh_class
+        f,
+        mesh.get("arrays"),
+        mesh_class,
+        data_start,
+        data_size,
+        context=mesh_class,
+        read_shape_payload=read_shape_payload,
     )
     if mesh_class == "OctreeMesh":
         if "base_mesh" not in mesh:
             raise ValueError("OctreeMesh descriptor missing required key 'base_mesh'")
         shape = _validate_parsed_base_mesh(
-            f, mesh["base_mesh"], data_start, data_size, context="OctreeMesh base_mesh"
+            f,
+            mesh["base_mesh"],
+            data_start,
+            data_size,
+            context="OctreeMesh base_mesh",
+            read_shape_payload=read_shape_payload,
         )
         resolve_shared_padding(
             mesh.get("default_padding"), mesh["base_mesh"].get("default_padding"), shape
@@ -818,9 +871,9 @@ def _validate_parsed_mesh(f, mesh: dict, data_start: int, data_size: int | None)
         return value
     if "base_mesh" in mesh:
         raise ValueError(f"{mesh_class} does not support base_mesh")
-    shape = tuple(value)
+    shape = None if value is None else tuple(value)
     padding_as_json(mesh.get("default_padding"), shape)
-    return math.prod(shape)
+    return None if shape is None else math.prod(shape)
 
 
 def validate_model_lengths(models: dict, n_cells: int | None) -> None:
