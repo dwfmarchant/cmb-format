@@ -5,6 +5,8 @@ geometry and named per-cell models, or models for a separately stored mesh.
 See ``docs/binary-format.md`` for the normative format specification.
 """
 
+from importlib.metadata import version as _version
+
 from cmb_format._codec import (
     DTYPE_TO_NUMPY,
     INT8_MAX,
@@ -36,12 +38,15 @@ from cmb_format._padding import (
     validate_default_padding_shape,
 )
 
+__version__ = _version("cmb-format")
+
 __all__ = [
     "DTYPE_TO_NUMPY",
     "INT8_MAX",
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
+    "__version__",
     "base_mesh_descriptor",
     "build_file_bytes",
     "is_cmb_file",

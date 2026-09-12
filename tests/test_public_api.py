@@ -8,6 +8,7 @@ EXPECTED_PUBLIC_API = [
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
+    "__version__",
     "base_mesh_descriptor",
     "build_file_bytes",
     "is_cmb_file",
