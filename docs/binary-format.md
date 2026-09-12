@@ -119,7 +119,8 @@ contains its geometry array descriptors. An embedded octree also requires
 
 In reference mode, `n_cells` is required in addition to `mode`. It allows
 readers to check model lengths without opening a separate mesh file.
-`mesh_class` and `base_mesh` are absent by default. The caller is responsible
+`mesh_class` and `base_mesh` are absent by default. A reference descriptor
+without `base_mesh` may include `default_padding`. The caller is responsible
 for pairing the models with the correct mesh.
 
 Reference mode is useful for octrees, whose per-leaf geometry can be large.
@@ -132,7 +133,8 @@ but equal base grids do not establish that the octree refinements match.
 
 ### Default padding
 
-`default_padding` is optional visualization metadata stored as a complete
+`TensorMesh` and `UniformTensorMesh` descriptors support optional
+visualization metadata through `default_padding`. It is stored as a complete
 JSON object with six non-negative integer fields:
 
 ```json
@@ -151,11 +153,6 @@ positional order. A missing `default_padding` field or explicit JSON `null`
 means no default padding; an object containing six zeros remains an explicit
 setting. Padding is not a binary array and does not alter the geometry array
 key sets.
-
-For an embedded octree, padding belongs to the nested `base_mesh`; an outer
-`default_padding` entry is unrecognized and ignored. A reference descriptor with
-a `base_mesh` uses the same placement. A bare reference without `base_mesh` may
-retain its outer padding field.
 
 Where an axis shape is available, the two opposing padding values may sum
 to that axis's cell count but may not exceed it. A bare reference descriptor
@@ -268,8 +265,6 @@ array descriptor. Each model is a one-dimensional array of length
 - A non-null `default_padding` value is an object with all six named fields,
   no unknown names, and non-negative integer values. Validate opposing counts
   against the axis shape where available (see [Default padding](#default-padding)).
-  An embedded octree or reference descriptor with `base_mesh` stores this field
-  only on the nested base descriptor; an outer entry is ignored as unknown.
 - **Unknown keys are ignored.** Readers MUST tolerate unrecognized fields
   in the header, mesh descriptor, `base_mesh`, model entries, and array
   descriptors. This allows optional fields to be added without a version
@@ -350,10 +345,8 @@ A v1 file sets `format_version` to `1`. When present and non-null,
 ```
 
 Each value is a non-negative integer. Named objects are not valid v1 padding.
-Padding follows the same recognized-owner rule in v1: octree and reference
-files with a `base_mesh` use only the nested base field, while an outer entry is
-unrecognized and ignored. Missing or null padding, explicit all-zero padding,
-and opposing-count limits have the same meaning as in v2. File framing, array
+Padding placement, missing or null padding, explicit all-zero padding, and
+opposing-count limits have the same meaning as in v2. File framing, array
 descriptors, payload bytes, checksums, geometry schemas, and cell ordering are
 unchanged.
 
