@@ -7,7 +7,7 @@ import pytest
 import cmb_format as cmb
 from cases import CASES, build_bytes
 
-GOLDENS = pathlib.Path(__file__).parent / "goldens"
+GOLDENS = pathlib.Path(__file__).parent / "goldens" / "v1"
 
 
 def test_a_golden_identifies_as_cmb(tmp_path):

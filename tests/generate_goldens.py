@@ -1,8 +1,9 @@
-"""Regenerate binary fixtures and parsed header sidecars.
+"""Regenerate v2 binary fixtures and parsed header sidecars.
 
 Run ``python tests/generate_goldens.py`` after an intentional fixture or
 serialization update. Review the resulting binary and sidecar diffs before
-committing; changed bytes do not necessarily imply a format change.
+committing; the historical v1 fixtures under ``tests/goldens/v1/`` are kept
+separate and are never overwritten by this script.
 """
 
 import io
@@ -15,7 +16,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import cmb_format as cmb
 from cases import CASES, build_bytes
 
-GOLDENS = pathlib.Path(__file__).parent / "goldens"
+GOLDENS = pathlib.Path(__file__).parent / "goldens" / "v2"
 
 
 def main():

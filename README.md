@@ -72,11 +72,15 @@ mesh, models, metadata = cmb.read_file("example.cmb", models=["rho"])
 `read_file` loads and checksum-verifies all geometry and selected model arrays,
 including nested base-mesh geometry. Its three results match `write_file`'s
 `mesh`, `models`, and `metadata` parameters, so passing them straight back
-preserves the mesh geometry, model arrays, and metadata. Valid padding is
-returned as integer lists, with shared octree/reference padding on the nested
-base descriptor. The NumPy arrays are read-only; use `.copy()` if you need to
-modify them. `models=None` loads every model, `models=[]` loads none, and
-duplicate selections collapse in stored file order.
+preserves the mesh geometry, model arrays, and metadata. `default_padding`
+accepts a mapping with `west`, `east`, `south`, `north`, `bottom`, and `top`
+keys; omitted keys default to zero. Recognized padding on tensor and uniform
+meshes, bare references, and `base_mesh` descriptors is returned as a fresh
+complete dictionary of Python integers; an explicit `null` there is omitted.
+Unrecognized descriptor fields pass through unchanged on reads and are ignored
+by writers. The NumPy arrays are read-only; use `.copy()` if you need to modify
+them. `models=None` loads every model, `models=[]` loads none, and duplicate
+selections collapse in stored file order.
 
 For inexpensive inspection, use the raw header summaries:
 
@@ -108,7 +112,9 @@ with open("example.cmb", "rb") as f:
 performs full header validation, including the embedded uniform mesh shape
 checksum. Set it to `False` for structural header checks without reading shape
 payloads; shape values and dependent uniform padding or model-count checks are
-deferred.
+deferred. The returned header contains normalized named dictionaries for
+recognized padding, including when it reads a legacy v1 file, and uses
+`format_version` 2. Unrecognized fields remain unchanged.
 
 For measured large-octree and tensor round trips and timing methodology, see
 [the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured
@@ -126,10 +132,12 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-Committed reference files in `tests/goldens/` test compatibility with the
-binary format alongside round-trip tests.
+Committed v1 and v2 reference files in `tests/goldens/v1/` and
+`tests/goldens/v2/` test compatibility with the binary format alongside
+round-trip tests.
 
 The [format specification](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md) defines the file layout
 and mesh schemas. Package and format versions are independent; see
 [versioning](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md#versioning) and the
-[package changelog](https://github.com/dwfmarchant/cmb-format/blob/main/CHANGELOG.md).
+[package changelog](https://github.com/dwfmarchant/cmb-format/blob/main/CHANGELOG.md)
+and [format changelog](https://github.com/dwfmarchant/cmb-format/blob/main/FORMAT_CHANGELOG.md).

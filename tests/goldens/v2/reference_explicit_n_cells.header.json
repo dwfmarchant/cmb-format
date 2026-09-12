@@ -1,0 +1,24 @@
+{
+  "format_version": 2,
+  "mesh": {
+    "mode": "reference",
+    "n_cells": 3
+  },
+  "metadata": {},
+  "models": {
+    "rho": {
+      "array": {
+        "checksum": "sha256:a68de4b5e96a60c8ceb3c7b7ef93461725bdbbff3516b136585a743b5c0ec664",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 0,
+        "shape": [
+          3
+        ]
+      },
+      "metadata": {
+        "units": "ohm-m"
+      }
+    }
+  }
+}

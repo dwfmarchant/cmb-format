@@ -9,6 +9,20 @@ import numpy as np
 
 import cmb_format as cmb
 
+PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
+_DTYPE_ITEMS = (
+    ("float64", "<f8"),
+    ("float32", "<f4"),
+    ("int64", "<i8"),
+    ("int32", "<i4"),
+    ("int16", "<i2"),
+    ("int8", "<i1"),
+)
+
+
+def named_padding(values):
+    return dict(zip(PADDING_NAMES, values, strict=True))
+
 
 def _tensor(padding=None):
     d = {
@@ -22,7 +36,7 @@ def _tensor(padding=None):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = named_padding(padding)
     return d
 
 
@@ -37,7 +51,7 @@ def _uniform(padding=None):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = named_padding(padding)
     return d
 
 
@@ -51,7 +65,7 @@ def _base_mesh(padding=None, shape=(4, 4, 4)):
         },
     }
     if padding is not None:
-        d["default_padding"] = padding
+        d["default_padding"] = named_padding(padding)
     return d
 
 
@@ -117,10 +131,12 @@ def _all_dtypes(n):
     """One model per dtype the format defines a token for."""
     return {
         f"m_{name}": {"metadata": {}, "array": np.arange(n, dtype=np.dtype(code))}
-        for name, code in cmb.DTYPE_TO_NUMPY.items()
+        for name, code in _DTYPE_ITEMS
     }
 
 
+# These twelve existing names have frozen v1 fixtures and must not be renamed
+# or changed. Add new scenarios under new names when only v2 coverage is needed.
 CASES = {
     "tensor_embedded": {"mesh": _tensor(), "metadata": {}, "models": {}},
     "tensor_with_models": {

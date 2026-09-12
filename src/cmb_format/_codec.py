@@ -14,36 +14,24 @@ from numbers import Integral
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from cmb_format._compat import normalize_header_padding
 from cmb_format._padding import (
-    normalize_default_padding,
+    _normalize_default_padding,
+    _validate_normalized_padding_shape,
     normalize_integer_array,
-    validate_default_padding_shape,
 )
 
 __all__ = [
-    "DTYPE_TO_NUMPY",
-    "INT8_MAX",
     "KIND_ITEMSIZE_TO_DTYPE_NAME",
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
     "array_dtype_name",
-    "base_mesh_descriptor",
-    "padding_as_json",
-    "padding_belongs_to_base_mesh",
-    "raw_mesh_shape",
     "read_array",
     "read_arrays",
     "read_header",
-    "resolve_reference_n_cells",
-    "resolve_shared_padding",
-    "serialize_array",
-    "serialize_arrays",
-    "serialize_mesh",
     "sha256_hex",
-    "shape_from_mesh_arrays",
     "summarize_models",
-    "to_le_bytes",
     "validate_model_lengths",
 ]
 
@@ -51,10 +39,10 @@ MAGIC = b"CELLMODB"
 
 # An integer counter of incompatible wire changes, unrelated to this
 # package's own version. See docs/binary-format.md's Versioning section.
-WRITTEN_FORMAT_VERSION = 1
-READABLE_FORMAT_VERSIONS = frozenset({1})
+WRITTEN_FORMAT_VERSION = 2
+READABLE_FORMAT_VERSIONS = frozenset({1, 2})
 
-DTYPE_TO_NUMPY = {
+_DTYPE_TO_NUMPY = {
     "float64": "<f8",
     "float32": "<f4",
     "int64": "<i8",
@@ -71,10 +59,6 @@ KIND_ITEMSIZE_TO_DTYPE_NAME = {
     ("i", 1): "int8",
 }
 
-INT8_MAX = np.iinfo(np.int8).max
-
-# Maximum value representable by the int8 dtype used for octree levels.
-
 _MESH_CLASSES = ("TensorMesh", "UniformTensorMesh", "OctreeMesh")
 _GEOMETRY_KEYS = {
     "TensorMesh": frozenset({"origin", "h_x", "h_y", "h_z"}),
@@ -90,11 +74,6 @@ def array_dtype_name(arr: NDArray) -> str:
     if key not in KIND_ITEMSIZE_TO_DTYPE_NAME:
         raise TypeError(f"unsupported array dtype for CMB: {arr.dtype}")
     return KIND_ITEMSIZE_TO_DTYPE_NAME[key]
-
-
-def to_le_bytes(arr: ArrayLike, dtype_name: str) -> bytes:
-    numpy_dtype = np.dtype(DTYPE_TO_NUMPY[dtype_name])
-    return np.ascontiguousarray(arr, dtype=numpy_dtype).tobytes()
 
 
 def sha256_hex(raw: bytes) -> str:
@@ -209,7 +188,7 @@ def _validate_power_of_two_shape(shape: tuple[int, int, int], *, context: str) -
         raise ValueError(f"{context} base-grid dimensions must each be powers of two")
 
 
-def _validate_raw_base_mesh(base: dict, *, context: str) -> tuple[int, int, int]:
+def _validate_raw_base_mesh(base: dict, *, context: str) -> dict[str, int] | None:
     if not isinstance(base, dict):
         raise ValueError(f"{context} must be a mapping")
     if base.get("mesh_class") != "UniformTensorMesh":
@@ -218,11 +197,14 @@ def _validate_raw_base_mesh(base: dict, *, context: str) -> tuple[int, int, int]
         "UniformTensorMesh", base.get("arrays"), context=f"{context}"
     )
     _validate_power_of_two_shape(shape, context=context)
-    padding_as_json(base.get("default_padding"), shape)
-    return shape
+    padding = _normalize_default_padding(base.get("default_padding"), shape)
+    return padding
 
 
-def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
+def _validate_raw_mesh(
+    mesh: dict,
+) -> tuple[int, dict[str, int] | None]:
+    """Validate raw mesh input and return its count and owner padding."""
     if not isinstance(mesh, dict):
         raise ValueError("mesh descriptor must be a mapping")
     mode = mesh.get("mode")
@@ -238,48 +220,35 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
                 raise ValueError(
                     "OctreeMesh descriptor missing required key 'base_mesh'"
                 )
-            base_shape = _validate_raw_base_mesh(
+            padding = _validate_raw_base_mesh(
                 mesh["base_mesh"], context="OctreeMesh base_mesh"
             )
-            resolve_shared_padding(
-                mesh.get("default_padding"),
-                mesh["base_mesh"].get("default_padding"),
-                base_shape,
-            )
-            return int(shape_or_count), base_shape
+            return int(shape_or_count), padding
         if "base_mesh" in mesh:
             raise ValueError(f"{mesh_class} does not support base_mesh")
         shape = tuple(shape_or_count)
-        padding_as_json(mesh.get("default_padding"), shape)
-        return math.prod(shape), shape
+        padding = _normalize_default_padding(mesh.get("default_padding"), shape)
+        return math.prod(shape), padding
     if mode == "reference":
         n_cells = _nonnegative_integer(mesh.get("n_cells"), name="reference n_cells")
-        base = mesh.get("base_mesh")
         if "base_mesh" not in mesh:
-            padding_as_json(mesh.get("default_padding"))
-            return n_cells, None
-        if base is None:
-            raise ValueError("reference mesh 'base_mesh' must be a mapping")
-        shape = _validate_raw_base_mesh(base, context="reference base_mesh")
-        resolve_shared_padding(
-            mesh.get("default_padding"), base.get("default_padding"), shape
+            padding = _normalize_default_padding(mesh.get("default_padding"))
+            return n_cells, padding
+        padding = _validate_raw_base_mesh(
+            mesh["base_mesh"], context="reference base_mesh"
         )
-        return n_cells, shape
+        return n_cells, padding
     raise ValueError(f"unsupported mesh mode for serialization: {mode!r}")
 
 
-def serialize_array(arr: ArrayLike, buffer: bytearray) -> dict:
-    """Append an array's little-endian bytes to buffer and return its descriptor.
-
-    Accepts array-like input with a supported dtype. Mutates the supplied
-    bytearray; the descriptor's offset is the buffer length before appending.
-    The descriptor records dtype, shape, byte length, and a SHA-256 checksum.
-    """
+def _serialize_array(arr: ArrayLike, buffer: bytearray) -> dict:
+    """Append one supported array as little-endian bytes and return its descriptor."""
     arr = np.asarray(arr)
     if arr.ndim > 1:
         raise ValueError(f"arrays must be at most 1D, got shape {arr.shape}")
     dtype_name = array_dtype_name(arr)
-    raw = to_le_bytes(arr, dtype_name)
+    numpy_dtype = np.dtype(_DTYPE_TO_NUMPY[dtype_name])
+    raw = np.ascontiguousarray(arr, dtype=numpy_dtype).tobytes()
     offset = len(buffer)
     buffer.extend(raw)
     return {
@@ -291,255 +260,35 @@ def serialize_array(arr: ArrayLike, buffer: bytearray) -> dict:
     }
 
 
-def serialize_arrays(arrays: dict, buffer: bytearray) -> dict:
-    return {name: serialize_array(arrays[name], buffer) for name in sorted(arrays)}
+def _serialize_arrays(arrays: dict, buffer: bytearray) -> dict:
+    return {name: _serialize_array(arrays[name], buffer) for name in sorted(arrays)}
 
 
-def shape_from_mesh_arrays(
-    mesh_class: str, arrays: dict
-) -> tuple[int, int, int] | None:
-    """Derive an axis shape from a raw mesh descriptor's geometry arrays."""
-    if mesh_class not in ("TensorMesh", "UniformTensorMesh"):
-        return None
-    if not isinstance(arrays, dict):
-        raise ValueError(f"{mesh_class} descriptor arrays must be a mapping")
-    if mesh_class == "TensorMesh":
-        widths = []
-        for name in ("h_x", "h_y", "h_z"):
-            if name not in arrays:
-                raise ValueError(
-                    f"TensorMesh descriptor arrays missing required key {name!r}"
-                )
-            try:
-                width = np.asarray(arrays[name])
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"TensorMesh descriptor arrays[{name!r}] must be a 1D array"
-                ) from exc
-            if width.ndim != 1 or width.size == 0:
-                raise ValueError(
-                    f"TensorMesh descriptor arrays[{name!r}] must be a non-empty "
-                    "1D array"
-                )
-            widths.append(width)
-        return tuple(int(width.size) for width in widths)
-    if mesh_class == "UniformTensorMesh":
-        if "shape" not in arrays:
-            raise ValueError(
-                "UniformTensorMesh descriptor arrays missing required key 'shape'"
-            )
-        shape_name = "UniformTensorMesh descriptor arrays['shape']"
-        shape = normalize_integer_array(
-            arrays["shape"],
-            name=shape_name,
-            shape=(3,),
-            minimum=1,
-            value_description="three positive integer values",
-        )
-        return tuple(int(value) for value in shape)
-
-
-def base_mesh_descriptor(mesh_dict: dict) -> dict | None:
-    """Return a nested base-mesh descriptor, or None when absent.
-
-    Checks that a supplied value is a mapping containing ``mesh_class``;
-    it does not validate the full geometry schema.
-    """
-    if "base_mesh" not in mesh_dict:
-        return None
-    base = mesh_dict["base_mesh"]
-    mode = mesh_dict.get("mode")
-    mesh_class = mesh_dict.get("mesh_class")
-    if mode == "embedded" and mesh_class == "OctreeMesh":
-        owner = "OctreeMesh"
-    elif mode == "reference":
-        owner = "reference mesh"
-    else:
-        owner = "mesh"
-    if not isinstance(base, dict):
-        raise ValueError(f"{owner} descriptor 'base_mesh' must be a mapping")
-    if "mesh_class" not in base:
-        raise ValueError(
-            f"{owner} descriptor 'base_mesh' missing required key 'mesh_class'"
-        )
-    return base
-
-
-def raw_mesh_shape(mesh_dict: dict) -> tuple[int, int, int] | None:
-    """Return the axis shape represented by raw mesh arrays.
-
-    This helper accepts writer input containing NumPy arrays. Parsed array
-    descriptors from a file are not valid inputs; use their recorded shapes
-    or read the arrays instead.
-    """
-    if not isinstance(mesh_dict, dict):
-        raise ValueError("mesh descriptor must be a mapping")
-    mode = mesh_dict.get("mode")
-    mesh_class = mesh_dict.get("mesh_class")
-    if mode == "embedded" and mesh_class == "OctreeMesh":
-        base = base_mesh_descriptor(mesh_dict)
-        if base is None:
-            raise ValueError("OctreeMesh descriptor missing required key 'base_mesh'")
-    elif mode == "reference":
-        base = base_mesh_descriptor(mesh_dict)
-        if base is None:
-            return None
-    else:
-        # Nested base meshes omit mode. Keep this helper's original limited
-        # shape derivation; full geometry checks happen on I/O paths.
-        if mesh_class in ("TensorMesh", "UniformTensorMesh"):
-            return shape_from_mesh_arrays(mesh_class, mesh_dict.get("arrays", {}))
-        return None
-    return shape_from_mesh_arrays(base.get("mesh_class"), base.get("arrays", {}))
-
-
-def padding_belongs_to_base_mesh(mesh_dict: dict) -> bool:
-    """Whether a descriptor's canonical padding field belongs on its base."""
-    base = mesh_dict.get("base_mesh")
-    return isinstance(base, dict) and (
-        mesh_dict.get("mode") == "reference"
-        or mesh_dict.get("mesh_class") == "OctreeMesh"
-    )
-
-
-def padding_as_json(
-    value: ArrayLike | None, shape: tuple[int, int, int] | None = None
-) -> list[int] | None:
-    """Normalize a padding field and validate it against an optional shape."""
-    if value is None:
-        return None
-    padding = normalize_default_padding(value)
-    if shape is not None:
-        validate_default_padding_shape(padding, shape)
-    return padding.tolist()
-
-
-def resolve_shared_padding(
-    outer: ArrayLike | None,
-    nested: ArrayLike | None,
-    shape: tuple[int, int, int] | None = None,
-) -> list[int] | None:
-    """Resolve outer and nested padding to one JSON list.
-
-    The nested base mesh owns the canonical setting. Use its value when
-    present, or the outer value as a fallback. If both are present, their
-    normalized values must match. An optional shape bounds each opposing pair.
-    """
-    outer_padding = normalize_default_padding(outer)
-    nested_padding = normalize_default_padding(nested)
-    if (
-        outer_padding is not None
-        and nested_padding is not None
-        and not np.array_equal(outer_padding, nested_padding)
-    ):
-        raise ValueError("outer and nested default_padding values must match")
-    padding = nested_padding if nested_padding is not None else outer_padding
-    if padding is not None and shape is not None:
-        validate_default_padding_shape(padding, shape)
-    return None if padding is None else padding.tolist()
-
-
-def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
-    """Append a mesh's geometry arrays to buffer and return its descriptor.
-
-    Embedded input contains raw arrays; the result replaces them with array
-    descriptors. Reference input supplies ``n_cells`` and may include a base
-    mesh. Base-mesh arrays are appended to the same buffer.
-
-    Normalizes padding and checks it against available axis shapes. This
-    routine does not perform full geometric validation or reorder cells.
-    """
-    _validate_raw_mesh(mesh_dict)
+def _serialize_mesh(
+    mesh_dict: dict, buffer: bytearray, *, padding: dict[str, int] | None
+) -> dict:
+    """Append validated mesh geometry and return its parsed descriptor."""
     mode = mesh_dict["mode"]
     if mode == "embedded":
         header = {
             "mode": "embedded",
             "mesh_class": mesh_dict["mesh_class"],
-            "arrays": serialize_arrays(mesh_dict["arrays"], buffer),
+            "arrays": _serialize_arrays(mesh_dict["arrays"], buffer),
         }
     else:
-        # Reference mode omits mesh_class; optional base geometry is added below.
-        header = {
-            "mode": "reference",
-            "n_cells": _nonnegative_integer(
-                mesh_dict["n_cells"], name="reference n_cells"
-            ),
-        }
+        header = {"mode": "reference", "n_cells": mesh_dict["n_cells"]}
 
-    base = base_mesh_descriptor(mesh_dict)
-    has_shared_padding = padding_belongs_to_base_mesh(mesh_dict)
-    if has_shared_padding:
-        # An octree and its base mesh share one padding setting, stored on
-        # the base descriptor. A value found on the outer descriptor instead
-        # is moved there.
-        shared_padding = resolve_shared_padding(
-            mesh_dict.get("default_padding"),
-            base.get("default_padding"),
-            raw_mesh_shape(mesh_dict),
-        )
-        padding = None
-    else:
-        shared_padding = None
-        padding = padding_as_json(
-            mesh_dict.get("default_padding"), raw_mesh_shape(mesh_dict)
-        )
-    if padding is not None:
+    base = mesh_dict.get("base_mesh")
+    if padding is not None and not isinstance(base, dict):
         header["default_padding"] = padding
     if isinstance(base, dict):
-        base_header = {
+        header["base_mesh"] = {
             "mesh_class": base["mesh_class"],
-            "arrays": serialize_arrays(base["arrays"], buffer),
+            "arrays": _serialize_arrays(base["arrays"], buffer),
         }
-        if has_shared_padding:
-            base_padding = shared_padding
-        else:
-            base_padding = padding_as_json(
-                base.get("default_padding"), raw_mesh_shape(base)
-            )
-        if base_padding is not None:
-            base_header["default_padding"] = base_padding
-        header["base_mesh"] = base_header
+        if padding is not None:
+            header["base_mesh"]["default_padding"] = padding
     return header
-
-
-def resolve_reference_n_cells(mesh_n_cells: int | None, normalized_models: dict) -> int:
-    """Determine a reference-mode file's cell count.
-
-    All model arrays must be one-dimensional and have equal lengths. Their
-    length must match ``mesh_n_cells`` when supplied. Without models, use
-    ``mesh_n_cells``; raise ValueError if neither source is available.
-    """
-    if mesh_n_cells is not None:
-        mesh_n_cells = _nonnegative_integer(mesh_n_cells, name="reference n_cells")
-    if not isinstance(normalized_models, dict):
-        raise ValueError("models must be a mapping")
-    lengths = {}
-    for name, entry in normalized_models.items():
-        if not isinstance(entry, dict) or "array" not in entry:
-            raise ValueError(f"model {name!r} must be an object with an 'array' field")
-        arr = np.asarray(entry["array"])
-        if arr.ndim != 1:
-            raise ValueError(
-                f"model {name!r} must be a 1D array (docs/binary-format.md's "
-                f"models schema), got shape {arr.shape}"
-            )
-        lengths[name] = arr.shape[0]
-    if not lengths:
-        if mesh_n_cells is None:
-            raise ValueError(
-                "a reference-mode file needs n_cells or at least one model "
-                "to determine n_cells"
-            )
-        return mesh_n_cells
-    distinct = set(lengths.values())
-    if len(distinct) > 1:
-        raise ValueError(f"models disagree on cell count: {lengths}")
-    (n_cells,) = distinct
-    if mesh_n_cells is not None and n_cells != mesh_n_cells:
-        raise ValueError(
-            f"mesh has n_cells={mesh_n_cells}, but models have {n_cells} cells"
-        )
-    return n_cells
 
 
 def _validate_array_descriptor(
@@ -551,7 +300,7 @@ def _validate_array_descriptor(
     if missing:
         raise ValueError(f"{context} missing required field(s): {missing}")
     dtype = descriptor["dtype"]
-    if not isinstance(dtype, str) or dtype not in DTYPE_TO_NUMPY:
+    if not isinstance(dtype, str) or dtype not in _DTYPE_TO_NUMPY:
         raise ValueError(f"{context}.dtype has unsupported value {dtype!r}")
     shape = descriptor["shape"]
     if not isinstance(shape, list) or len(shape) > 1:
@@ -569,7 +318,7 @@ def _validate_array_descriptor(
     offset = _nonnegative_integer(descriptor["offset"], name=f"{context}.offset")
     length = _nonnegative_integer(descriptor["length"], name=f"{context}.length")
     expected = (dimensions[0] if dimensions else 1) * np.dtype(
-        DTYPE_TO_NUMPY[dtype]
+        _DTYPE_TO_NUMPY[dtype]
     ).itemsize
     if length != expected:
         raise ValueError(
@@ -606,7 +355,7 @@ def read_array(f, data_start: int, descriptor: dict) -> NDArray:
         raise ValueError("truncated CMB file: array data shorter than declared length")
     if sha256_hex(raw).casefold() != descriptor["checksum"].casefold():
         raise ValueError("CMB checksum mismatch: array data is corrupted")
-    numpy_dtype = np.dtype(DTYPE_TO_NUMPY[dtype])
+    numpy_dtype = np.dtype(_DTYPE_TO_NUMPY[dtype])
     return np.frombuffer(raw, dtype=numpy_dtype).reshape(tuple(shape))
 
 
@@ -626,7 +375,10 @@ def read_header(
 ) -> tuple[dict, int]:
     """Read and structurally validate a CMB file's trailing JSON header.
 
-    The default ``read_shape_payload=True`` checks the file framing, header
+    The returned header normalizes recognized v1 list padding and v2 object
+    padding to complete named dictionaries and reports ``format_version`` 2.
+    Unrecognized fields remain unchanged. The default
+    ``read_shape_payload=True`` checks the file framing, header
     schema, array descriptor bounds, mesh descriptors, and that every model is one
     value per cell. It reads and checksum-verifies a three-element ``shape``
     array when a ``UniformTensorMesh`` needs its values for cell counts and
@@ -681,6 +433,7 @@ def read_header(
     mesh = header.get("mesh")
     if not isinstance(mesh, dict):
         raise ValueError("CMB header 'mesh' must be an object")
+    normalize_header_padding(header)
     data_size = header_start - data_start
     for name, entry in models.items():
         if not isinstance(entry, dict):
@@ -807,7 +560,8 @@ def _validate_parsed_base_mesh(
     )
     if shape is not None:
         _validate_power_of_two_shape(shape, context=context)
-    padding_as_json(base.get("default_padding"), shape)
+    if shape is not None and base.get("default_padding") is not None:
+        _validate_normalized_padding_shape(base["default_padding"], shape)
     return shape
 
 
@@ -824,20 +578,16 @@ def _validate_parsed_mesh(
         n_cells = _nonnegative_integer(mesh.get("n_cells"), name="reference n_cells")
         base = mesh.get("base_mesh")
         if "base_mesh" not in mesh:
-            padding_as_json(mesh.get("default_padding"))
             return n_cells
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be an object")
-        shape = _validate_parsed_base_mesh(
+        _validate_parsed_base_mesh(
             f,
             base,
             data_start,
             data_size,
             context="reference base_mesh",
             read_shape_payload=read_shape_payload,
-        )
-        resolve_shared_padding(
-            mesh.get("default_padding"), base.get("default_padding"), shape
         )
         return n_cells
     if mode != "embedded":
@@ -857,7 +607,7 @@ def _validate_parsed_mesh(
     if mesh_class == "OctreeMesh":
         if "base_mesh" not in mesh:
             raise ValueError("OctreeMesh descriptor missing required key 'base_mesh'")
-        shape = _validate_parsed_base_mesh(
+        _validate_parsed_base_mesh(
             f,
             mesh["base_mesh"],
             data_start,
@@ -865,14 +615,12 @@ def _validate_parsed_mesh(
             context="OctreeMesh base_mesh",
             read_shape_payload=read_shape_payload,
         )
-        resolve_shared_padding(
-            mesh.get("default_padding"), mesh["base_mesh"].get("default_padding"), shape
-        )
         return value
     if "base_mesh" in mesh:
         raise ValueError(f"{mesh_class} does not support base_mesh")
     shape = None if value is None else tuple(value)
-    padding_as_json(mesh.get("default_padding"), shape)
+    if shape is not None and mesh.get("default_padding") is not None:
+        _validate_normalized_padding_shape(mesh["default_padding"], shape)
     return None if shape is None else math.prod(shape)
 
 

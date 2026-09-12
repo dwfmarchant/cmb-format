@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 import cmb_format as cmb
-from cmb_format._codec import sha256_hex
-from test_helpers import frame, fresh_mesh, mutate, unpack_case
+from cmb_format._codec import _DTYPE_TO_NUMPY, _serialize_array, sha256_hex
+from test_helpers import frame, fresh_mesh, mutate, named_padding, unpack_case
 
 MESH_CASES = {
     "TensorMesh": "tensor_embedded",
@@ -117,11 +117,11 @@ def test_reference_count_is_strict_on_writer(value):
 
 
 def test_numpy_reference_count_is_normalized_for_json():
-    header = cmb.serialize_mesh(
-        {"mode": "reference", "n_cells": np.int64(3)}, bytearray()
-    )
-    assert header["n_cells"] == 3
-    assert type(header["n_cells"]) is int
+    raw = cmb.build_file_bytes({"mode": "reference", "n_cells": np.int64(3)})
+    with io.BytesIO(raw) as f:
+        header, _ = cmb.read_header(f)
+    assert header["mesh"]["n_cells"] == 3
+    assert type(header["mesh"]["n_cells"]) is int
 
 
 def test_zero_reference_count_is_valid():
@@ -217,7 +217,7 @@ def test_reader_rejects_scalar_geometry_descriptors(case_name, field):
     with pytest.raises(ValueError, match="must be 1D"):
         header, data = unpack_case(case_name)
         descriptor = header["mesh"]["arrays"][field]
-        width = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]]).itemsize
+        width = np.dtype(_DTYPE_TO_NUMPY[descriptor["dtype"]]).itemsize
         descriptor.update(
             shape=[],
             length=width,
@@ -256,24 +256,28 @@ def test_reader_rejects_reference_count_and_inference_failures():
     with pytest.raises(ValueError, match="n_cells"):
         cmb.read_header(io.BytesIO(frame(header, data)))
     with pytest.raises(ValueError, match="n_cells"):
-        cmb.resolve_reference_n_cells(None, {})
+        cmb.build_file_bytes({"mode": "reference"}, {})
     with pytest.raises(ValueError, match="disagree"):
-        cmb.resolve_reference_n_cells(
-            None,
+        cmb.build_file_bytes(
+            {"mode": "reference"},
             {"a": {"array": np.zeros(2)}, "b": {"array": np.zeros(3)}},
         )
 
 
-def test_reader_rejects_bad_padding_values_and_conflicts():
+def test_reader_validates_recognized_padding_and_ignores_outer_octree_data():
     header, data = unpack_case("tensor_embedded")
-    header["mesh"]["default_padding"] = [True, 0, 0, 0, 0, 0]
+    header["mesh"]["default_padding"] = named_padding([True, 0, 0, 0, 0, 0])
     with pytest.raises(ValueError, match="padding"):
         cmb.read_header(io.BytesIO(frame(header, data)))
+
     header, data = unpack_case("octree_embedded")
-    header["mesh"]["default_padding"] = [1, 1, 1, 1, 1, 1]
-    header["mesh"]["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
-    with pytest.raises(ValueError, match="match"):
-        cmb.read_header(io.BytesIO(frame(header, data)))
+    header["mesh"]["default_padding"] = {"west": True}
+    header["mesh"]["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
+    parsed, _ = cmb.read_header(io.BytesIO(frame(header, data)))
+    assert parsed["mesh"]["default_padding"] == {"west": True}
+    assert parsed["mesh"]["base_mesh"]["default_padding"] == named_padding(
+        [2, 2, 1, 1, 1, 1]
+    )
 
 
 @pytest.mark.parametrize("shape", [(6, 4, 4), (3, 3, 3), (12, 4, 4)])
@@ -329,7 +333,7 @@ class _NoArrayAccess:
 )
 def test_read_array_rejects_malformed_descriptors_before_io(mutation):
     buffer = bytearray()
-    descriptor = cmb.serialize_array(np.arange(4.0), buffer)
+    descriptor = _serialize_array(np.arange(4.0), buffer)
     if mutation == "negative_offset":
         descriptor["offset"] = -1
     elif mutation == "missing_field":
@@ -405,59 +409,95 @@ def test_reader_checks_nested_base_descriptor_bounds():
 def test_serialize_array_rejects_multidimensional_without_mutating_buffer():
     buffer = bytearray(b"prefix")
     with pytest.raises(ValueError, match="at most 1D"):
-        cmb.serialize_array(np.ones((2, 2)), buffer)
+        _serialize_array(np.ones((2, 2)), buffer)
     assert buffer == bytearray(b"prefix")
 
 
 def test_scalar_standalone_array_round_trips():
     buffer = bytearray()
-    descriptor = cmb.serialize_array(np.array(2.0), buffer)
+    descriptor = _serialize_array(np.array(2.0), buffer)
     with io.BytesIO(bytes(buffer)) as f:
         result = cmb.read_array(f, 0, descriptor)
     assert result.shape == ()
     assert result.flags.writeable is False
 
 
-def test_padding_conflict_is_rejected():
+def test_writer_ignores_unknown_descriptor_and_model_keys():
+    mesh = fresh_mesh("tensor_embedded")
+    mesh["weest"] = 1
+    models = {"rho": {"array": np.arange(24.0), "future": {"x": 1}}}
+
+    raw = cmb.build_file_bytes(mesh, models)
+    with io.BytesIO(raw) as f:
+        header, _ = cmb.read_header(f)
+    assert "weest" not in header["mesh"]
+    assert "future" not in header["models"]["rho"]
+
+
+def test_writer_ignores_outer_octree_padding_and_keeps_base_value():
     mesh = fresh_mesh("octree_embedded")
-    mesh["default_padding"] = [1, 1, 1, 1, 1, 1]
-    mesh["base_mesh"]["default_padding"] = [2, 2, 1, 1, 1, 1]
-    with pytest.raises(ValueError, match="must match"):
-        cmb.build_file_bytes(mesh)
+    mesh["default_padding"] = {"west": True}
+    mesh["base_mesh"]["default_padding"] = named_padding([2, 2, 1, 1, 1, 1])
+
+    raw = cmb.build_file_bytes(mesh)
+    header, _ = cmb.read_header(io.BytesIO(raw))
+
+    assert "default_padding" not in header["mesh"]
+    assert header["mesh"]["base_mesh"]["default_padding"] == named_padding(
+        [2, 2, 1, 1, 1, 1]
+    )
 
 
 @pytest.mark.parametrize(
-    "padding",
+    "padding, match",
     [
-        [True, 0, 0, 0, 0, 0],
-        [1, 2, 3],
-        [np.inf] * 6,
-        [np.nan] * 6,
-        [0.5] * 6,
-        [-1] * 6,
-        [2**63] * 6,
-        ["0"] * 6,
+        (named_padding([True, 0, 0, 0, 0, 0]), "not booleans"),
+        ([1, 2, 3], "mapping"),
+        (named_padding([np.inf] * 6), "finite integer values"),
+        (named_padding([np.nan] * 6), "finite integer values"),
+        (named_padding([0.5] * 6), "finite integer values"),
+        (named_padding([-1] * 6), "non-negative"),
+        (named_padding([2**63] * 6), "int64 range"),
+        (named_padding(["0"] * 6), "integer values"),
+        ({"weest": 1}, "unknown name"),
     ],
 )
-def test_writer_rejects_bad_padding_values(padding):
+def test_writer_rejects_bad_padding_values(padding, match):
     mesh = fresh_mesh("tensor_embedded")
     mesh["default_padding"] = padding
-    with pytest.raises(ValueError, match="padding"):
+    with pytest.raises(ValueError, match=match):
         cmb.build_file_bytes(mesh)
 
 
-def test_raw_mesh_shape_accepts_raw_partial_inputs():
-    raw = {"mesh_class": "UniformTensorMesh", "arrays": {"shape": np.array([3, 2, 4])}}
-    assert cmb.raw_mesh_shape(raw) == (3, 2, 4)
-    raw["mode"] = "embedded"
-    assert cmb.raw_mesh_shape(raw) == (3, 2, 4)
+def test_padding_accepts_numpy_scalar_values():
+    mesh = fresh_mesh("tensor_embedded")
+    mesh["default_padding"] = named_padding([np.array(2), 0, 0, 0, 0, 0])
+
+    raw = cmb.build_file_bytes(mesh)
+    with io.BytesIO(raw) as f:
+        header, _ = cmb.read_header(f)
+    assert header["mesh"]["default_padding"]["west"] == 2
+    assert type(header["mesh"]["default_padding"]["west"]) is int
 
 
-def test_raw_mesh_shape_rejects_octree_without_base_mesh():
-    mesh = fresh_mesh("octree_embedded")
-    del mesh["base_mesh"]
-    with pytest.raises(ValueError, match="missing required key 'base_mesh'"):
-        cmb.raw_mesh_shape(mesh)
+@pytest.mark.parametrize("value", [[1, 2], (1, 2), np.array([2])])
+def test_padding_values_must_be_scalar(value):
+    mesh = fresh_mesh("tensor_embedded")
+    mesh["default_padding"] = named_padding([value, 0, 0, 0, 0, 0])
+    with pytest.raises(ValueError, match="must be a scalar integer"):
+        cmb.build_file_bytes(mesh)
+
+
+def test_writer_validates_complete_uniform_geometry():
+    mesh = {
+        "mode": "embedded",
+        "mesh_class": "UniformTensorMesh",
+        "arrays": {
+            "shape": np.array([3, 2, 4], dtype=np.int32),
+        },
+    }
+    with pytest.raises(ValueError, match="required keys"):
+        cmb.build_file_bytes(mesh)
 
 
 @pytest.mark.parametrize(
@@ -526,9 +566,9 @@ def test_uniform_cell_count_does_not_overflow_int64_on_read():
 
 
 @pytest.mark.parametrize("entry", [None, {}, {"metadata": {}}])
-def test_public_reference_count_helper_rejects_malformed_models(entry):
+def test_reference_model_entries_reject_malformed_models(entry):
     with pytest.raises(ValueError, match="array"):
-        cmb.resolve_reference_n_cells(None, {"rho": entry})
+        cmb.build_file_bytes({"mode": "reference", "n_cells": 1}, {"rho": entry})
 
 
 @pytest.mark.parametrize("value", [True, 3.0, "3", -1])
@@ -562,9 +602,3 @@ def test_octree_position_and_base_shape_support_int64():
     assert position.dtype.itemsize == shape.dtype.itemsize == 8
     np.testing.assert_array_equal(position, mesh["arrays"]["position"])
     np.testing.assert_array_equal(shape, [4, 4, 4])
-
-
-def test_padding_shape_check_requires_three_axes():
-    padding = cmb.normalize_default_padding([0] * 6)
-    with pytest.raises(ValueError, match="mesh shape must have shape"):
-        cmb.validate_default_padding_shape(padding, [2, 2])

@@ -1,0 +1,120 @@
+{
+  "format_version": 2,
+  "mesh": {
+    "arrays": {
+      "h_x": {
+        "checksum": "sha256:fec3b3f542f1ce1663cded037897e99422b77491b845093a000ed065c0bce92e",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 0,
+        "shape": [
+          3
+        ]
+      },
+      "h_y": {
+        "checksum": "sha256:5f07eef034c5a21fedede8ef2f970fefbcc8ea44c02fd970117dacbee5483005",
+        "dtype": "float64",
+        "length": 16,
+        "offset": 24,
+        "shape": [
+          2
+        ]
+      },
+      "h_z": {
+        "checksum": "sha256:5e5c794534608bdcc5f3c19fd8d94ad66ab3aedaeb79694b00adab9d1df8e25f",
+        "dtype": "float64",
+        "length": 32,
+        "offset": 40,
+        "shape": [
+          4
+        ]
+      },
+      "origin": {
+        "checksum": "sha256:279037a8af1f19218073350990d5ee476685533d88191f2ad68b0821cf67dccb",
+        "dtype": "float64",
+        "length": 24,
+        "offset": 72,
+        "shape": [
+          3
+        ]
+      }
+    },
+    "mesh_class": "TensorMesh",
+    "mode": "embedded"
+  },
+  "metadata": {},
+  "models": {
+    "m_float32": {
+      "array": {
+        "checksum": "sha256:45a99655901702d55ab6284a18aed6a5e16677181d16c7a7517b68c2ae2c0c7a",
+        "dtype": "float32",
+        "length": 96,
+        "offset": 288,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    },
+    "m_float64": {
+      "array": {
+        "checksum": "sha256:83e13c83f17cec9f8ab1cf1146ae28520e65812acb66b4e41c6945d196fc04fe",
+        "dtype": "float64",
+        "length": 192,
+        "offset": 96,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    },
+    "m_int16": {
+      "array": {
+        "checksum": "sha256:e88624bf274aff4f35798f4bc27027683e9c1d78f132211a3cc4ae5b3decd4e3",
+        "dtype": "int16",
+        "length": 48,
+        "offset": 672,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    },
+    "m_int32": {
+      "array": {
+        "checksum": "sha256:a26f2589bc817e205aed8ed29161a2538dbe40952ed97c98974e90b4b056d4b4",
+        "dtype": "int32",
+        "length": 96,
+        "offset": 576,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    },
+    "m_int64": {
+      "array": {
+        "checksum": "sha256:088889b8071756d3559dc2172e525644f0be09d4b3fb26a697070bddcb805338",
+        "dtype": "int64",
+        "length": 192,
+        "offset": 384,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    },
+    "m_int8": {
+      "array": {
+        "checksum": "sha256:1d64add2a6388367c9bc2d1f1b384b069a6ef382cdaaa89771dd103e28613a25",
+        "dtype": "int8",
+        "length": 24,
+        "offset": 720,
+        "shape": [
+          24
+        ]
+      },
+      "metadata": {}
+    }
+  }
+}

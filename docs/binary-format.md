@@ -1,9 +1,10 @@
-# Cell Model Binary format (CMB) — v1 specification
+# Cell Model Binary format (CMB) — v2 specification
 
 CMB stores cell-based meshes and their models in `.cmb` files. This document
-is the normative v1 specification, independent of any implementation.
+is the normative specification for CMB version 2, independent of any
+implementation.
 
-## Design goals, and why
+## Design goals
 
 - **Portable:** raw binary arrays and a UTF-8 JSON header.
 - **Selective reads:** explicit byte offsets allow readers to load individual
@@ -13,7 +14,7 @@ is the normative v1 specification, independent of any implementation.
 - **Efficient appends:** a trailing header allows new models to be added
   without rewriting existing array data.
 
-Arrays are uncompressed in v1.
+Arrays are uncompressed.
 
 ## File layout
 
@@ -56,8 +57,8 @@ file. Per-array checksums do not provide crash recovery.
 
 To remove a model, write a new file containing the raw array bytes to keep,
 with updated offsets and a new header. The arrays can be copied without
-decoding and re-encoding them; v1 has no free-space bookkeeping for in-place
-deletion.
+decoding and re-encoding them. The format has no free-space bookkeeping
+for in-place deletion.
 
 ### Byte order
 
@@ -67,11 +68,11 @@ Implementations on big-endian systems must convert byte order as needed.
 
 ## Header schema
 
-The header is a single JSON object:
+The header is a single JSON object with `format_version` set to `2`:
 
 ```jsonc
 {
-  "format_version": 1,
+  "format_version": 2,
   "mesh": { /* mesh descriptor, embedded or reference — see below */ },
   "metadata": {},                        // arbitrary user key/values, any JSON
   "models": {
@@ -104,7 +105,10 @@ A mesh descriptor has two modes:
   "base_mesh": {                          // optional -- OctreeMesh reference only, see below
     "mesh_class": "UniformTensorMesh",
     "arrays": {...},
-    "default_padding": [0, 0, 0, 0, 0, 0] // optional shared padding
+    "default_padding": {                 // optional base-mesh padding
+      "west": 0, "east": 0, "south": 0,
+      "north": 0, "bottom": 0, "top": 0
+    }
   }
 }
 ```
@@ -115,7 +119,8 @@ contains its geometry array descriptors. An embedded octree also requires
 
 In reference mode, `n_cells` is required in addition to `mode`. It allows
 readers to check model lengths without opening a separate mesh file.
-`mesh_class` and `base_mesh` are absent by default. The caller is responsible
+`mesh_class` and `base_mesh` are absent by default. A reference descriptor
+without `base_mesh` may include `default_padding`. The caller is responsible
 for pairing the models with the correct mesh.
 
 Reference mode is useful for octrees, whose per-leaf geometry can be large.
@@ -128,20 +133,26 @@ but equal base grids do not establish that the octree refinements match.
 
 ### Default padding
 
-`default_padding` is optional visualization metadata, stored as a JSON list
-of six non-negative integers in the order
-`[west, east, south, north, bottom, top]`, also written
-`[x-, x+, y-, y+, z-, z+]`. Missing or explicit JSON `null` means no default
-padding. It is not a binary array and does not alter the geometry array
-key sets.
+`TensorMesh` and `UniformTensorMesh` descriptors support optional
+visualization metadata through `default_padding`. It is stored as a complete
+JSON object with six non-negative integer fields:
 
-For an embedded octree, padding belongs to the nested `base_mesh`; the
-outer descriptor does not repeat it. A reference descriptor with a
-`base_mesh` uses the same placement. For compatibility, readers/writers may
-accept an outer-only field and move it to the nested base. If both fields
-are supplied, they must normalize to the same six values or the descriptor
-is rejected. A bare reference without `base_mesh` may retain its outer
-padding field.
+```json
+{
+  "west": 0,
+  "east": 0,
+  "south": 0,
+  "north": 0,
+  "bottom": 0,
+  "top": 0
+}
+```
+
+All six names are required, and unknown names are invalid. The fields have no
+positional order. A missing `default_padding` field or explicit JSON `null`
+means no default padding; an object containing six zeros remains an explicit
+setting. Padding is not a binary array and does not alter the geometry array
+key sets.
 
 Where an axis shape is available, the two opposing padding values may sum
 to that axis's cell count but may not exceed it. A bare reference descriptor
@@ -174,10 +185,9 @@ at data-section offsets `[offset, offset + length)`, prefixed with `sha256:`.
 A reader verifies arrays it reads; it need not verify arrays it does not read.
 Verification of one array does not require reading any other array.
 
-All arrays in v1 are at most one-dimensional: `shape` has zero elements for
-a scalar or one element for a one-dimensional array. Multidimensional
-arrays are outside v1. Cell ordering is described
-[below](#cell-numbering-ordering).
+Arrays are at most one-dimensional: `shape` has zero elements for a scalar
+or one element for a one-dimensional array. Multidimensional arrays are not
+supported. Cell ordering is described [below](#cell-numbering-ordering).
 
 ### Mesh classes
 
@@ -251,7 +261,13 @@ array descriptor. Each model is a one-dimensional array of length
 ## Validation a reader should perform
 
 - Trailing `magic` matches exactly; reject otherwise.
-- `format_version` is a version the reader understands.
+- `format_version` is an integer version the reader supports; this document
+  defines `2` (see [Legacy versions](#legacy-versions) for `1`). Readers reject
+  other versions and report the versions they accept.
+- For v2, a recognized non-null `default_padding` value is an object with
+  all six named fields,
+  no unknown names, and non-negative integer values. Validate opposing counts
+  against the axis shape where available (see [Default padding](#default-padding)).
 - **Unknown keys are ignored.** Readers MUST tolerate unrecognized fields
   in the header, mesh descriptor, `base_mesh`, model entries, and array
   descriptors. This allows optional fields to be added without a version
@@ -283,6 +299,7 @@ alignment and tiling, is the receiving application's responsibility.
 ## Versioning
 
 `format_version` is an integer counter, independent of package versions.
+See the [format changelog](../FORMAT_CHANGELOG.md) for the format-only history.
 
 A format-version bump is required when removing, renaming, or retyping a
 required field; changing the byte layout, offsets, or trailer; changing
@@ -313,8 +330,37 @@ rejects an unsupported format version should report the versions it accepts.
 - **[`earthbasis-mesh`](https://github.com/dwfmarchant/earthbasis-mesh)** integrates
   the format with mesh and model objects through `earthbasis_mesh.io.cmb`.
 
-`tests/goldens/` contains committed reference files and parsed JSON header
-sidecars. They test reading known files and preserve the Python writer's
-exact serialization. A golden-file change requires review, but does not
-necessarily imply a format change: JSON whitespace or key order can change
-without changing the format's meaning.
+`tests/goldens/v2/` contains committed reference files and parsed JSON
+header sidecars. They test reading known files and preserve the Python
+writer's exact serialization. A golden-file change requires review, but does
+not necessarily imply a format change: JSON whitespace or key order can
+change without changing the format's meaning.
+
+## Legacy versions
+
+### CMB v1
+
+A v1 file sets `format_version` to `1`. When present and non-null,
+`default_padding` is a six-element JSON list in this order:
+
+```text
+[west, east, south, north, bottom, top]
+```
+
+Each value is a non-negative integer. Named objects are not valid v1 padding.
+Padding placement, missing or null padding, explicit all-zero padding, and
+opposing-count limits have the same meaning as in v2. File framing, array
+descriptors, payload bytes, checksums, geometry schemas, and cell ordering are
+unchanged.
+
+The Python reference implementation reads v1 and v2 and writes only v2.
+When reading v1, it converts padding lists to named dictionaries before
+applying shared validation. `read_header` returns these normalized fields with `format_version` `2`, so the
+returned header can be rewritten as v2. Reading does not modify the file.
+
+To convert a v1 file to v2, translate any padding lists to named objects, set
+`format_version` to `2`, and rewrite the JSON header and its length. Geometry
+and model array bytes, offsets, and checksums can be retained.
+
+Historical reference files and their header sidecars are preserved in
+`tests/goldens/v1/`. The fixture generator writes only the current v2 fixtures.
