@@ -9,7 +9,7 @@ import pytest
 
 import cmb_format as cmb
 from cases import CASES, build_bytes
-from cmb_format._codec import array_dtype_name
+from cmb_format._codec import _DTYPE_TO_NUMPY, _serialize_array, array_dtype_name
 from test_helpers import (
     forge_model_shape,
     frame,
@@ -61,7 +61,8 @@ def test_read_header_normalizes_v1_padding_at_the_boundary():
 
     parsed, _ = cmb.read_header(_reader(frame(header, data)))
 
-    assert parsed["format_version"] == cmb.WRITTEN_FORMAT_VERSION
+    assert parsed["format_version"] == 2
+    assert cmb.WRITTEN_FORMAT_VERSION == 2
     assert parsed["mesh"]["base_mesh"]["default_padding"] == expected
     assert all(
         type(value) is int
@@ -75,7 +76,8 @@ def test_read_header_v1_result_can_be_reframed_as_v2(path, read_shape_payload):
     raw = path.read_bytes()
     with _reader(raw) as stream:
         parsed, _ = cmb.read_header(stream, read_shape_payload=read_shape_payload)
-    assert parsed["format_version"] == cmb.WRITTEN_FORMAT_VERSION
+    assert parsed["format_version"] == 2
+    assert cmb.WRITTEN_FORMAT_VERSION == 2
     header_start = len(raw) - 16 - struct.unpack("<Q", raw[-16:-8])[0]
     reframed = frame(parsed, raw[8:header_start])
 
@@ -96,12 +98,30 @@ def test_read_header_rejects_malformed_v1_padding(value):
         cmb.read_header(_reader(frame(header, data)))
 
 
-@pytest.mark.parametrize("value", [[1, 2, 3, 4, 5, 6], {"west": 1}])
-def test_read_header_requires_complete_named_v2_padding(value):
+@pytest.mark.parametrize(
+    "value, match",
+    [
+        ([1, 2, 3, 4, 5, 6], "CMB v2"),
+        ({"west": 1}, "invalid names"),
+        (
+            {
+                "west": 1,
+                "east": 0,
+                "south": 0,
+                "north": 0,
+                "bottom": 0,
+                "top": 0,
+                "weest": 0,
+            },
+            "unknown names",
+        ),
+    ],
+)
+def test_read_header_requires_complete_named_v2_padding(value, match):
     header, data = unpack_case("tensor_padding")
     header["mesh"]["default_padding"] = value
 
-    with pytest.raises(ValueError, match=r"CMB v2|invalid names"):
+    with pytest.raises(ValueError, match=match):
         cmb.read_header(_reader(frame(header, data)))
 
 
@@ -149,15 +169,15 @@ def test_rejects_an_array_dtype_the_format_cannot_express():
         array_dtype_name(np.array([1 + 2j]))
 
 
-@pytest.mark.parametrize("dtype_name", sorted(cmb.DTYPE_TO_NUMPY))
+@pytest.mark.parametrize("dtype_name", sorted(_DTYPE_TO_NUMPY))
 def test_every_declared_dtype_round_trips(dtype_name):
-    native = np.dtype(cmb.DTYPE_TO_NUMPY[dtype_name])
+    native = np.dtype(_DTYPE_TO_NUMPY[dtype_name])
     for values in (
         np.arange(4, dtype=native),
         np.arange(4, dtype=native.newbyteorder(">")),
     ):
         buffer = bytearray()
-        descriptor = cmb.serialize_array(values, buffer)
+        descriptor = _serialize_array(values, buffer)
         assert descriptor["dtype"] == dtype_name
         assert bytes(buffer) == np.arange(4, dtype=native).tobytes()
         raw = cmb.MAGIC + bytes(buffer)

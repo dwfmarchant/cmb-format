@@ -113,8 +113,8 @@ performs full header validation, including the embedded uniform mesh shape
 checksum. Set it to `False` for structural header checks without reading shape
 payloads; shape values and dependent uniform padding or model-count checks are
 deferred. The returned header contains normalized named dictionaries for
-recognized padding, including when it reads a legacy v1 file, and uses the
-current written `format_version`. Unrecognized fields remain unchanged.
+recognized padding, including when it reads a legacy v1 file, and uses
+`format_version` 2. Unrecognized fields remain unchanged.
 
 For measured large-octree and tensor round trips and timing methodology, see
 [the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured

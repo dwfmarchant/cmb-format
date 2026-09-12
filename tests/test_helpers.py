@@ -8,14 +8,10 @@ import struct
 import numpy as np
 
 import cmb_format as cmb
-from cases import CASES, build_bytes
-from cmb_format._codec import sha256_hex
+from cases import CASES, build_bytes, named_padding
+from cmb_format._codec import _DTYPE_TO_NUMPY, sha256_hex
 
-_PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
-
-
-def named_padding(values):
-    return dict(zip(_PADDING_NAMES, values, strict=True))
+__all__ = ["named_padding"]
 
 
 def fresh_case(case_name):
@@ -55,7 +51,7 @@ def forge_model_shape(case_name, shape):
     """Return a valid file with model bytes and the first shape replaced."""
     header, data = unpack_case(case_name)
     descriptor = next(iter(header["models"].values()))["array"]
-    dtype = np.dtype(cmb.DTYPE_TO_NUMPY[descriptor["dtype"]])
+    dtype = np.dtype(_DTYPE_TO_NUMPY[descriptor["dtype"]])
     payload = np.arange(math.prod(shape), dtype=dtype).tobytes()
     descriptor["offset"] = len(data)
     descriptor["length"] = len(payload)

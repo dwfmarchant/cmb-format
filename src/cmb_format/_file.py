@@ -15,19 +15,20 @@ import numpy as np
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
-    _padding_as_json,
+    _nonnegative_integer,
+    _serialize_array,
+    _serialize_mesh,
     _validate_raw_mesh,
-    base_mesh_descriptor,
     read_array,
     read_arrays,
     read_header,
-    resolve_reference_n_cells,
-    serialize_array,
-    serialize_mesh,
     summarize_models,
     validate_model_lengths,
 )
-from cmb_format._padding import normalize_integer_array
+from cmb_format._padding import (
+    _validate_normalized_padding_shape,
+    normalize_integer_array,
+)
 
 __all__ = [
     "build_file_bytes",
@@ -59,14 +60,6 @@ def _select_model_names(
         )
     wanted = set(requested_names)
     return [name for name in model_headers if name in wanted]
-
-
-def _normalize_read_mesh_padding(mesh: dict) -> None:
-    """Remove explicit null padding from the recognized descriptor owner."""
-    base = base_mesh_descriptor(mesh)
-    owner = base if base is not None else mesh
-    if owner.get("default_padding") is None:
-        owner.pop("default_padding", None)
 
 
 def read_file(
@@ -126,7 +119,15 @@ def read_file(
         if "base_mesh" in mesh:
             base = mesh["base_mesh"]
             base["arrays"] = read_arrays(f, data_start, base["arrays"])
-        _normalize_read_mesh_padding(mesh)
+        base = mesh.get("base_mesh")
+        if isinstance(base, dict) and (
+            mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
+        ):
+            owner = base
+        else:
+            owner = mesh
+        if owner.get("default_padding") is None:
+            owner.pop("default_padding", None)
         model_entries = {
             name: {
                 **model_headers[name],
@@ -185,7 +186,11 @@ def read_contents(file_name: str | os.PathLike) -> dict:
                     minimum=1,
                     value_description="three positive integer values",
                 )
-                _padding_as_json(mesh_header.get("default_padding"), tuple(shape))
+                if mesh_header.get("default_padding") is not None:
+                    _validate_normalized_padding_shape(
+                        mesh_header["default_padding"],
+                        tuple(int(value) for value in shape),
+                    )
                 n_cells = math.prod(int(value) for value in shape)
             else:  # pragma: no cover - read_header validates this first.
                 raise ValueError(f"unknown mesh_class: {mesh_type!r}")
@@ -211,8 +216,12 @@ def read_contents(file_name: str | os.PathLike) -> dict:
     }
 
 
-def _check_model_lengths(models: dict, n_cells: int) -> None:
-    """Raise if any model is not one value per cell."""
+def _resolve_model_count(mesh: dict, models: dict, expected: int | None) -> int:
+    """Validate raw model cardinality and return the mesh cell count."""
+    supplied = mesh.get("n_cells") if mesh.get("mode") == "reference" else None
+    if supplied is not None:
+        supplied = _nonnegative_integer(supplied, name="reference n_cells")
+    lengths = {}
     for name, entry in models.items():
         if not isinstance(entry, dict) or "array" not in entry:
             raise ValueError(f"model {name!r} must be an object with an 'array' field")
@@ -221,40 +230,52 @@ def _check_model_lengths(models: dict, n_cells: int) -> None:
             raise ValueError(
                 f"model {name!r} must be a 1D array, got shape {arr.shape}"
             )
-        length = arr.shape[0]
-        if length != n_cells:
+        lengths[name] = arr.shape[0]
+    if expected is not None:
+        for name, length in lengths.items():
+            if length != expected:
+                raise ValueError(
+                    f"model {name!r} has {length} values, but the mesh has "
+                    f"{expected} cells; models are one value per cell"
+                )
+        return expected
+    if not lengths:
+        if supplied is None:
             raise ValueError(
-                f"model {name!r} has {length} values, but the mesh has "
-                f"{n_cells} cells; models are one value per cell"
+                "a reference-mode file needs n_cells or at least one model "
+                "to determine n_cells"
             )
+        return supplied
+    distinct = set(lengths.values())
+    if len(distinct) > 1:
+        raise ValueError(f"models disagree on cell count: {lengths}")
+    (n_cells,) = distinct
+    if supplied is not None and n_cells != supplied:
+        raise ValueError(
+            f"mesh has n_cells={supplied}, but models have {n_cells} cells"
+        )
+    return n_cells
 
 
 def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
-    """Build the header dictionary and its array-data buffer.
-
-    Insertion order preserves the Python writer's exact serialization, which
-    is checked by golden files. The format does not require this JSON key order.
-    """
+    """Build the header dictionary and its array-data buffer."""
     if not isinstance(mesh, dict):
         raise ValueError("mesh must be a mapping")
     if models is None:
         models = {}
     elif not isinstance(models, dict):
         raise ValueError("models must be a mapping")
-    buffer = bytearray()
 
     if mesh.get("mode") == "reference":
-        # Derive the count from model lengths and cross-check any supplied count.
-        mesh = {
-            **mesh,
-            "n_cells": resolve_reference_n_cells(mesh.get("n_cells"), models),
-        }
+        n_cells = _resolve_model_count(mesh, models, None)
+        mesh = {**mesh, "n_cells": n_cells}
+        validation = _validate_raw_mesh(mesh)
+    else:
+        validation = _validate_raw_mesh(mesh)
+        _resolve_model_count(mesh, models, validation[0])
 
-    # Validate geometry and model cardinality before mutating the data buffer.
-    n_cells, _ = _validate_raw_mesh(mesh)
-    _check_model_lengths(models, n_cells)
-    mesh_header = serialize_mesh(mesh, buffer)
-
+    buffer = bytearray()
+    mesh_header = _serialize_mesh(mesh, buffer, padding=validation[1])
     header = {
         "format_version": WRITTEN_FORMAT_VERSION,
         "mesh": mesh_header,
@@ -262,7 +283,7 @@ def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
         "models": {
             name: {
                 "metadata": entry.get("metadata", {}),
-                "array": serialize_array(entry["array"], buffer),
+                "array": _serialize_array(entry["array"], buffer),
             }
             for name, entry in models.items()
         },

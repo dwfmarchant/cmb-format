@@ -82,6 +82,7 @@ def _normalize_padding_value(value, *, name: str) -> int:
 
 def _normalize_default_padding(
     default_padding: Mapping[str, object] | None,
+    shape: tuple[int, int, int] | None = None,
 ) -> dict[str, int] | None:
     """Return a fresh complete named padding mapping, or ``None``.
 
@@ -98,28 +99,26 @@ def _normalize_default_padding(
     unknown = [name for name in default_padding if name not in _PADDING_NAME_SET]
     if unknown:
         raise ValueError(f"default_padding has unknown name(s): {unknown!r}")
-    return {
+    normalized = {
         name: _normalize_padding_value(
             default_padding.get(name, 0), name=f"default_padding[{name!r}]"
         )
         for name in _PADDING_NAMES
     }
+    if shape is not None:
+        _validate_normalized_padding_shape(normalized, shape)
+    return normalized
 
 
 def _validate_normalized_padding_shape(
-    default_padding: Mapping[str, int] | None, shape: ArrayLike
+    default_padding: Mapping[str, int], shape: tuple[int, int, int]
 ) -> None:
     """Validate an already normalized padding mapping against a shape."""
-    if default_padding is None:
-        return
-    shape_arr = np.asarray(shape)
-    if shape_arr.shape != (3,):
-        raise ValueError(f"mesh shape must have shape (3,), got {shape_arr.shape}")
     for side_a, side_b, axis, n_cells in zip(
         (default_padding["west"], default_padding["south"], default_padding["bottom"]),
         (default_padding["east"], default_padding["north"], default_padding["top"]),
         ("x", "y", "z"),
-        shape_arr,
+        shape,
         strict=True,
     ):
         if side_a + side_b > int(n_cells):

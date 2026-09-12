@@ -19,7 +19,8 @@ import numpy as np
 import pytest
 
 import cmb_format as cmb
-from cases import CASES, build_bytes
+from cases import CASES, PADDING_NAMES, build_bytes
+from cmb_format._codec import _DTYPE_TO_NUMPY
 from test_helpers import named_padding
 
 GOLDENS = pathlib.Path(__file__).parent / "goldens"
@@ -85,14 +86,7 @@ def test_v2_serialization_preserves_data_and_uses_named_padding(name):
         )
     for descriptor in (header["mesh"], header["mesh"].get("base_mesh", {})):
         if "default_padding" in descriptor:
-            assert set(descriptor["default_padding"]) == {
-                "west",
-                "east",
-                "south",
-                "north",
-                "bottom",
-                "top",
-            }
+            assert set(descriptor["default_padding"]) == set(PADDING_NAMES)
 
 
 def _header_start(raw):
@@ -125,7 +119,7 @@ def test_dtype_tokens_are_exactly_the_documented_set():
         "int16",
         "int8",
     }
-    assert set(cmb.DTYPE_TO_NUMPY) == expected
+    assert set(_DTYPE_TO_NUMPY) == expected
     header = json.loads((V2_GOLDENS / "all_dtypes.header.json").read_text())
     assert {m["array"]["dtype"] for m in header["models"].values()} == expected
 
@@ -168,13 +162,21 @@ def test_reference_mode_carries_no_mesh_class():
 
 
 def test_every_case_has_current_v2_golden_and_sidecar():
-    # Keep current fixture definitions and generated files in sync.
+    # Keep frozen legacy fixture definitions and current files in sync.
+    v1_names = {path.stem for path in V1_GOLDENS.glob("*.cmb")}
+    missing = v1_names - set(CASE_NAMES)
+    assert not missing, f"Frozen v1 cases missing from CASES: {sorted(missing)}"
+
     expected = {
         filename
         for name in CASE_NAMES
         for filename in (f"{name}.cmb", f"{name}.header.json")
     }
-    actual = {path.name for path in V2_GOLDENS.iterdir() if path.is_file()}
+    actual = {
+        path.name
+        for path in V2_GOLDENS.iterdir()
+        if path.is_file() and not path.name.startswith(".")
+    }
     assert actual == expected
     for path in V1_GOLDENS.glob("*.cmb"):
         assert (V1_GOLDENS / f"{path.stem}.header.json").is_file(), (

@@ -1,4 +1,4 @@
-"""Compatibility normalization for stored CMB header representations."""
+"""Normalize stored CMB header padding and legacy header representations."""
 
 from collections.abc import Mapping
 
@@ -38,11 +38,10 @@ def _normalize_field(value, *, format_version: int, context: str):
 
 
 def normalize_header_padding(header: dict) -> None:
-    """Normalize each descriptor's recognized stored padding field.
+    """Normalize recognized padding and expose v1 headers in v2 form.
 
-    For octree and reference descriptors with a base mesh, an outer
-    ``default_padding`` entry is unknown data and remains untouched. The
-    nested base field is the only recognized owner.
+    The recognized owner is the mesh descriptor for tensor, uniform, and bare
+    reference meshes, and the base descriptor for meshes that include one.
     """
     mesh = header["mesh"]
     base = mesh.get("base_mesh")
@@ -55,10 +54,12 @@ def normalize_header_padding(header: dict) -> None:
                 format_version=header["format_version"],
                 context="base_mesh.default_padding",
             )
-        return
-    if "default_padding" in mesh:
+    elif "default_padding" in mesh:
         mesh["default_padding"] = _normalize_field(
             mesh["default_padding"],
             format_version=header["format_version"],
             context="mesh.default_padding",
         )
+    if header["format_version"] == 1:
+        # Keep this migration target literal and independent of future writer bumps.
+        header["format_version"] = 2

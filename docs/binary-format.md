@@ -355,9 +355,8 @@ unchanged.
 
 The Python reference implementation reads v1 and v2 and writes only v2.
 When reading v1, it converts padding lists to named dictionaries before
-applying shared validation. `read_header` returns these normalized fields with
-the current written `format_version` of `2`, so the returned header can be
-rewritten as v2. Reading does not modify the file.
+applying shared validation. `read_header` returns these normalized fields with `format_version` `2`, so the
+returned header can be rewritten as v2. Reading does not modify the file.
 
 To convert a v1 file to v2, translate any padding lists to named objects, set
 `format_version` to `2`, and rewrite the JSON header and its length. Geometry
