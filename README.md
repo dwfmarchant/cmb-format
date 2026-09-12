@@ -74,11 +74,11 @@ including nested base-mesh geometry. Its three results match `write_file`'s
 `mesh`, `models`, and `metadata` parameters, so passing them straight back
 preserves the mesh geometry, model arrays, and metadata. `default_padding`
 accepts a mapping with `west`, `east`, `south`, `north`, `bottom`, and `top`
-keys; omitted keys default to zero. Reads return a fresh complete dictionary of
-Python integers. Octree and reference descriptors with a `base_mesh` keep
-padding only on that base descriptor; bare references may keep it on the
-reference descriptor.
-The NumPy arrays are read-only; use `.copy()` if you need to modify
+keys; omitted keys default to zero. Recognized padding on tensor and uniform
+meshes, bare references, and `base_mesh` descriptors is returned as a fresh
+complete dictionary of Python integers; an explicit `null` there is omitted.
+Unrecognized descriptor fields pass through unchanged on reads and are ignored
+by writers. The NumPy arrays are read-only; use `.copy()` if you need to modify
 them. `models=None` loads every model, `models=[]` loads none, and duplicate
 selections collapse in stored file order.
 
@@ -112,9 +112,9 @@ with open("example.cmb", "rb") as f:
 performs full header validation, including the embedded uniform mesh shape
 checksum. Set it to `False` for structural header checks without reading shape
 payloads; shape values and dependent uniform padding or model-count checks are
-deferred. The returned header contains normalized named padding dictionaries,
-including when it reads a legacy v1 file; its original `format_version` remains
-unchanged.
+deferred. The returned header contains normalized named dictionaries for
+recognized padding, including when it reads a legacy v1 file, and uses the
+current written `format_version`. Unrecognized fields remain unchanged.
 
 For measured large-octree and tensor round trips and timing methodology, see
 [the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured

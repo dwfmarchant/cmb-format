@@ -2,6 +2,7 @@
 
 import io
 import struct
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -18,6 +19,7 @@ from test_helpers import (
 )
 
 VALID = build_bytes(CASES["tensor_with_models"])
+V1_GOLDENS = Path(__file__).parent / "goldens" / "v1"
 
 
 def _reader(raw):
@@ -59,12 +61,29 @@ def test_read_header_normalizes_v1_padding_at_the_boundary():
 
     parsed, _ = cmb.read_header(_reader(frame(header, data)))
 
-    assert parsed["format_version"] == 1
+    assert parsed["format_version"] == cmb.WRITTEN_FORMAT_VERSION
     assert parsed["mesh"]["base_mesh"]["default_padding"] == expected
     assert all(
         type(value) is int
         for value in parsed["mesh"]["base_mesh"]["default_padding"].values()
     )
+
+
+@pytest.mark.parametrize("read_shape_payload", [True, False])
+@pytest.mark.parametrize("path", sorted(V1_GOLDENS.glob("*.cmb")), ids=lambda p: p.stem)
+def test_read_header_v1_result_can_be_reframed_as_v2(path, read_shape_payload):
+    raw = path.read_bytes()
+    with _reader(raw) as stream:
+        parsed, _ = cmb.read_header(stream, read_shape_payload=read_shape_payload)
+    assert parsed["format_version"] == cmb.WRITTEN_FORMAT_VERSION
+    header_start = len(raw) - 16 - struct.unpack("<Q", raw[-16:-8])[0]
+    reframed = frame(parsed, raw[8:header_start])
+
+    with _reader(reframed) as stream:
+        reframed_header, _ = cmb.read_header(
+            stream, read_shape_payload=read_shape_payload
+        )
+    assert reframed_header == parsed
 
 
 @pytest.mark.parametrize("value", [[1, 2, 3], [1, 2, 3, 4, 5, 6, 7], {"west": 1}])
@@ -148,10 +167,10 @@ def test_every_declared_dtype_round_trips(dtype_name):
 
 
 def test_padding_must_fit_the_mesh_it_describes():
+    mesh = CASES["tensor_embedded"]["mesh"].copy()
+    mesh["default_padding"] = named_padding([5, 5, 0, 0, 0, 0])
     with pytest.raises(ValueError, match="exceed the mesh shape"):
-        cmb.validate_default_padding_shape(
-            cmb.normalize_default_padding(named_padding([5, 5, 0, 0, 0, 0])), (3, 3, 3)
-        )
+        cmb.build_file_bytes(mesh)
 
 
 def test_unknown_header_keys_are_ignored_at_every_level(tmp_path):

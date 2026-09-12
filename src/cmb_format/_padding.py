@@ -1,7 +1,7 @@
-"""Normalize and validate named visualization padding.
+"""Normalize and validate CMB descriptor padding.
 
 Padding mappings use west, east, south, north, bottom, and top names. Values
-are normalized to non-negative Python integers with shared shape validation.
+are normalized to non-negative Python integers with CMB shape validation.
 """
 
 from collections.abc import Mapping
@@ -11,9 +11,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 __all__ = [
-    "normalize_default_padding",
     "normalize_integer_array",
-    "validate_default_padding_shape",
 ]
 
 
@@ -70,6 +68,8 @@ _PADDING_NAME_SET = frozenset(_PADDING_NAMES)
 
 
 def _normalize_padding_value(value, *, name: str) -> int:
+    if isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be a scalar integer")
     if isinstance(value, np.ndarray):
         if value.shape != ():
             raise ValueError(f"{name} must be a scalar integer")
@@ -80,7 +80,7 @@ def _normalize_padding_value(value, *, name: str) -> int:
     return int(normalized[0])
 
 
-def normalize_default_padding(
+def _normalize_default_padding(
     default_padding: Mapping[str, object] | None,
 ) -> dict[str, int] | None:
     """Return a fresh complete named padding mapping, or ``None``.
@@ -106,19 +106,18 @@ def normalize_default_padding(
     }
 
 
-def validate_default_padding_shape(
-    default_padding: Mapping[str, object] | None, shape: ArrayLike
+def _validate_normalized_padding_shape(
+    default_padding: Mapping[str, int] | None, shape: ArrayLike
 ) -> None:
-    """Validate opposing named padding sides against a three-axis shape."""
-    normalized = normalize_default_padding(default_padding)
-    if normalized is None:
+    """Validate an already normalized padding mapping against a shape."""
+    if default_padding is None:
         return
     shape_arr = np.asarray(shape)
     if shape_arr.shape != (3,):
         raise ValueError(f"mesh shape must have shape (3,), got {shape_arr.shape}")
     for side_a, side_b, axis, n_cells in zip(
-        (normalized["west"], normalized["south"], normalized["bottom"]),
-        (normalized["east"], normalized["north"], normalized["top"]),
+        (default_padding["west"], default_padding["south"], default_padding["bottom"]),
+        (default_padding["east"], default_padding["north"], default_padding["top"]),
         ("x", "y", "z"),
         shape_arr,
         strict=True,

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 from cmb_format._padding import (
     _PADDING_NAMES,
-    normalize_default_padding,
+    _normalize_default_padding,
 )
 
 
@@ -32,15 +32,9 @@ def _normalize_field(value, *, format_version: int, context: str):
     else:  # pragma: no cover - read_header checks the version first.
         raise ValueError(f"unsupported CMB format version: {format_version}")
     try:
-        return normalize_default_padding(value)
+        return _normalize_default_padding(value)
     except ValueError as exc:
         raise ValueError(f"invalid {context}: {exc}") from exc
-
-
-def _shared_padding_descriptor(mesh: dict) -> bool:
-    return "base_mesh" in mesh and (
-        mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
-    )
 
 
 def normalize_header_padding(header: dict) -> None:
@@ -52,8 +46,10 @@ def normalize_header_padding(header: dict) -> None:
     """
     mesh = header["mesh"]
     base = mesh.get("base_mesh")
-    if _shared_padding_descriptor(mesh):
-        if isinstance(base, dict) and "default_padding" in base:
+    if isinstance(base, dict) and (
+        mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
+    ):
+        if "default_padding" in base:
             base["default_padding"] = _normalize_field(
                 base["default_padding"],
                 format_version=header["format_version"],

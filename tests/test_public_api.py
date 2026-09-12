@@ -4,7 +4,6 @@ import cmb_format
 
 EXPECTED_PUBLIC_API = [
     "DTYPE_TO_NUMPY",
-    "INT8_MAX",
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
@@ -13,9 +12,6 @@ EXPECTED_PUBLIC_API = [
     "build_file_bytes",
     "is_cmb_file",
     "list_models",
-    "normalize_default_padding",
-    "padding_as_json",
-    "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
@@ -26,7 +22,6 @@ EXPECTED_PUBLIC_API = [
     "serialize_array",
     "serialize_mesh",
     "summarize_models",
-    "validate_default_padding_shape",
     "write_file",
 ]
 

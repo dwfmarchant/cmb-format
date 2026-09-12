@@ -105,7 +105,7 @@ A mesh descriptor has two modes:
   "base_mesh": {                          // optional -- OctreeMesh reference only, see below
     "mesh_class": "UniformTensorMesh",
     "arrays": {...},
-    "default_padding": {                 // optional shared padding
+    "default_padding": {                 // optional base-mesh padding
       "west": 0, "east": 0, "south": 0,
       "north": 0, "bottom": 0, "top": 0
     }
@@ -261,8 +261,11 @@ array descriptor. Each model is a one-dimensional array of length
 ## Validation a reader should perform
 
 - Trailing `magic` matches exactly; reject otherwise.
-- `format_version` is the integer `2`.
-- A non-null `default_padding` value is an object with all six named fields,
+- `format_version` is an integer version the reader supports; this document
+  defines `2` (see [Legacy versions](#legacy-versions) for `1`). Readers reject
+  other versions and report the versions they accept.
+- For v2, a recognized non-null `default_padding` value is an object with
+  all six named fields,
   no unknown names, and non-negative integer values. Validate opposing counts
   against the axis shape where available (see [Default padding](#default-padding)).
 - **Unknown keys are ignored.** Readers MUST tolerate unrecognized fields
@@ -352,9 +355,9 @@ unchanged.
 
 The Python reference implementation reads v1 and v2 and writes only v2.
 When reading v1, it converts padding lists to named dictionaries before
-applying shared validation. `read_header` returns these normalized fields
-while retaining the stored `format_version` of `1`; its result is not a
-verbatim copy of the stored JSON. Reading does not modify the file.
+applying shared validation. `read_header` returns these normalized fields with
+the current written `format_version` of `2`, so the returned header can be
+rewritten as v2. Reading does not modify the file.
 
 To convert a v1 file to v2, translate any padding lists to named objects, set
 `format_version` to `2`, and rewrite the JSON header and its length. Geometry

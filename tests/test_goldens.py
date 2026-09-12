@@ -28,7 +28,7 @@ V2_GOLDENS = GOLDENS / "v2"
 CASE_NAMES = sorted(CASES)
 
 
-@pytest.mark.parametrize("name", CASE_NAMES)
+@pytest.mark.parametrize("name", sorted(p.stem for p in V1_GOLDENS.glob("*.cmb")))
 def test_v1_golden_files_sidecars_and_arrays_are_unchanged(name):
     expected = (V1_GOLDENS / f"{name}.cmb").read_bytes()
 
@@ -67,7 +67,7 @@ def test_v1_golden_files_sidecars_and_arrays_are_unchanged(name):
 
 @pytest.mark.parametrize("name", CASE_NAMES)
 def test_v2_serialization_preserves_data_and_uses_named_padding(name):
-    v1_raw = (V1_GOLDENS / f"{name}.cmb").read_bytes()
+    v1_path = V1_GOLDENS / f"{name}.cmb"
     v2_raw = (V2_GOLDENS / f"{name}.cmb").read_bytes()
     assert build_bytes(CASES[name]) == v2_raw
     with io.BytesIO(v2_raw) as f:
@@ -77,9 +77,12 @@ def test_v2_serialization_preserves_data_and_uses_named_padding(name):
     assert stored == json.loads((V2_GOLDENS / f"{name}.header.json").read_text())
     assert header == stored
     assert header["format_version"] == 2
-    assert (
-        v2_raw[data_start : _header_start(v2_raw)] == v1_raw[8 : _header_start(v1_raw)]
-    )
+    if v1_path.is_file():
+        v1_raw = v1_path.read_bytes()
+        assert (
+            v2_raw[data_start : _header_start(v2_raw)]
+            == v1_raw[8 : _header_start(v1_raw)]
+        )
     for descriptor in (header["mesh"], header["mesh"].get("base_mesh", {})):
         if "default_padding" in descriptor:
             assert set(descriptor["default_padding"]) == {
@@ -97,13 +100,16 @@ def _header_start(raw):
     return len(raw) - 16 - header_length
 
 
-def test_magic_is_literal_and_trailer_uses_byte_eight_offsets():
-    raw = (V1_GOLDENS / "tensor_with_models.cmb").read_bytes()
+@pytest.mark.parametrize("version, directory", [(1, V1_GOLDENS), (2, V2_GOLDENS)])
+def test_magic_is_literal_and_trailer_uses_byte_eight_offsets(version, directory):
+    raw = (directory / "tensor_with_models.cmb").read_bytes()
     assert raw[:8] == b"CELLMODB"
     assert raw[-8:] == b"CELLMODB"
     (declared,) = struct.unpack("<Q", raw[-16:-8])
     header_start = len(raw) - 16 - declared
-    assert json.loads(raw[header_start:-16].decode("utf-8"))["format_version"] == 1
+    assert (
+        json.loads(raw[header_start:-16].decode("utf-8"))["format_version"] == version
+    )
     # Use the format's literal offset independently of the MAGIC constant.
     _, data_start = cmb.read_header(io.BytesIO(raw))
     assert data_start == 8
@@ -120,13 +126,13 @@ def test_dtype_tokens_are_exactly_the_documented_set():
         "int8",
     }
     assert set(cmb.DTYPE_TO_NUMPY) == expected
-    header = json.loads((V1_GOLDENS / "all_dtypes.header.json").read_text())
+    header = json.loads((V2_GOLDENS / "all_dtypes.header.json").read_text())
     assert {m["array"]["dtype"] for m in header["models"].values()} == expected
 
 
 def test_header_key_names_are_stable():
     header = json.loads(
-        (V1_GOLDENS / "octree_base_padding_models.header.json").read_text()
+        (V2_GOLDENS / "octree_base_padding_models.header.json").read_text()
     )
     assert set(header) == {"format_version", "mesh", "metadata", "models"}
     assert set(header["mesh"]) == {"arrays", "base_mesh", "mesh_class", "mode"}
@@ -134,6 +140,14 @@ def test_header_key_names_are_stable():
         "arrays",
         "default_padding",
         "mesh_class",
+    }
+    assert set(header["mesh"]["base_mesh"]["default_padding"]) == {
+        "west",
+        "east",
+        "south",
+        "north",
+        "bottom",
+        "top",
     }
     assert set(header["mesh"]["arrays"]["level"]) == {
         "checksum",
@@ -147,21 +161,25 @@ def test_header_key_names_are_stable():
 
 def test_reference_mode_carries_no_mesh_class():
     # The minimal reference descriptor identifies the mode and cell count.
-    header = json.loads((V1_GOLDENS / "reference_models_only.header.json").read_text())
+    header = json.loads((V2_GOLDENS / "reference_models_only.header.json").read_text())
     assert header["mesh"]["mode"] == "reference"
     assert "mesh_class" not in header["mesh"]
     assert header["mesh"]["n_cells"] == 3
 
 
-def test_every_case_has_both_a_golden_and_a_sidecar():
-    # Keep fixture definitions and committed files in sync.
-    for name in CASE_NAMES:
-        assert (V1_GOLDENS / f"{name}.cmb").is_file(), f"missing golden for {name}"
-        assert (V1_GOLDENS / f"{name}.header.json").is_file(), (
-            f"missing sidecar for {name}"
+def test_every_case_has_current_v2_golden_and_sidecar():
+    # Keep current fixture definitions and generated files in sync.
+    expected = {
+        filename
+        for name in CASE_NAMES
+        for filename in (f"{name}.cmb", f"{name}.header.json")
+    }
+    actual = {path.name for path in V2_GOLDENS.iterdir() if path.is_file()}
+    assert actual == expected
+    for path in V1_GOLDENS.glob("*.cmb"):
+        assert (V1_GOLDENS / f"{path.stem}.header.json").is_file(), (
+            f"missing sidecar for {path.stem}"
         )
-    stray = {p.stem for p in V1_GOLDENS.glob("*.cmb")} - set(CASE_NAMES)
-    assert not stray, f"goldens with no case in cases.py: {sorted(stray)}"
 
 
 def _cell_count(f, header, data_start):

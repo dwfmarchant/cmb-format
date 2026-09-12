@@ -17,22 +17,19 @@ from numpy.typing import ArrayLike, NDArray
 
 from cmb_format._compat import normalize_header_padding
 from cmb_format._padding import (
-    normalize_default_padding,
+    _normalize_default_padding,
+    _validate_normalized_padding_shape,
     normalize_integer_array,
-    validate_default_padding_shape,
 )
 
 __all__ = [
     "DTYPE_TO_NUMPY",
-    "INT8_MAX",
     "KIND_ITEMSIZE_TO_DTYPE_NAME",
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
     "array_dtype_name",
     "base_mesh_descriptor",
-    "padding_as_json",
-    "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
@@ -72,7 +69,6 @@ KIND_ITEMSIZE_TO_DTYPE_NAME = {
     ("i", 1): "int8",
 }
 
-INT8_MAX = np.iinfo(np.int8).max
 
 # Maximum value representable by the int8 dtype used for octree levels.
 
@@ -219,7 +215,7 @@ def _validate_raw_base_mesh(base: dict, *, context: str) -> tuple[int, int, int]
         "UniformTensorMesh", base.get("arrays"), context=f"{context}"
     )
     _validate_power_of_two_shape(shape, context=context)
-    padding_as_json(base.get("default_padding"), shape)
+    _padding_as_json(base.get("default_padding"), shape)
     return shape
 
 
@@ -246,13 +242,13 @@ def _validate_raw_mesh(mesh: dict) -> tuple[int, tuple[int, int, int] | None]:
         if "base_mesh" in mesh:
             raise ValueError(f"{mesh_class} does not support base_mesh")
         shape = tuple(shape_or_count)
-        padding_as_json(mesh.get("default_padding"), shape)
+        _padding_as_json(mesh.get("default_padding"), shape)
         return math.prod(shape), shape
     if mode == "reference":
         n_cells = _nonnegative_integer(mesh.get("n_cells"), name="reference n_cells")
         base = mesh.get("base_mesh")
         if "base_mesh" not in mesh:
-            padding_as_json(mesh.get("default_padding"))
+            _padding_as_json(mesh.get("default_padding"))
             return n_cells, None
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be a mapping")
@@ -386,24 +382,15 @@ def raw_mesh_shape(mesh_dict: dict) -> tuple[int, int, int] | None:
     return shape_from_mesh_arrays(base.get("mesh_class"), base.get("arrays", {}))
 
 
-def padding_belongs_to_base_mesh(mesh_dict: dict) -> bool:
-    """Whether a descriptor's canonical padding field belongs on its base."""
-    base = mesh_dict.get("base_mesh")
-    return isinstance(base, dict) and (
-        mesh_dict.get("mode") == "reference"
-        or mesh_dict.get("mesh_class") == "OctreeMesh"
-    )
-
-
-def padding_as_json(
+def _padding_as_json(
     value: Mapping[str, object] | None, shape: tuple[int, int, int] | None = None
 ) -> dict[str, int] | None:
     """Normalize named padding and validate it against an optional shape."""
     if value is None:
         return None
-    padding = normalize_default_padding(value)
+    padding = _normalize_default_padding(value)
     if shape is not None:
-        validate_default_padding_shape(padding, shape)
+        _validate_normalized_padding_shape(padding, shape)
     return padding
 
 
@@ -438,7 +425,7 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
     padding = (
         None
         if base is not None
-        else padding_as_json(
+        else _padding_as_json(
             mesh_dict.get("default_padding"), raw_mesh_shape(mesh_dict)
         )
     )
@@ -449,7 +436,7 @@ def serialize_mesh(mesh_dict: dict, buffer: bytearray) -> dict:
             "mesh_class": base["mesh_class"],
             "arrays": serialize_arrays(base["arrays"], buffer),
         }
-        base_padding = padding_as_json(
+        base_padding = _padding_as_json(
             base.get("default_padding"), raw_mesh_shape(base)
         )
         if base_padding is not None:
@@ -582,9 +569,10 @@ def read_header(
 ) -> tuple[dict, int]:
     """Read and structurally validate a CMB file's trailing JSON header.
 
-    The returned header normalizes v1 list padding and v2 object padding to
-    complete named dictionaries; its ``format_version`` remains the stored
-    version. The default ``read_shape_payload=True`` checks the file framing, header
+    The returned header normalizes recognized v1 list padding and v2 object
+    padding to complete named dictionaries and uses the current written
+    ``format_version``. Unrecognized fields remain unchanged. The default
+    ``read_shape_payload=True`` checks the file framing, header
     schema, array descriptor bounds, mesh descriptors, and that every model is one
     value per cell. It reads and checksum-verifies a three-element ``shape``
     array when a ``UniformTensorMesh`` needs its values for cell counts and
@@ -640,6 +628,8 @@ def read_header(
     if not isinstance(mesh, dict):
         raise ValueError("CMB header 'mesh' must be an object")
     normalize_header_padding(header)
+    if version == 1:
+        header["format_version"] = WRITTEN_FORMAT_VERSION
     data_size = header_start - data_start
     for name, entry in models.items():
         if not isinstance(entry, dict):
@@ -766,7 +756,7 @@ def _validate_parsed_base_mesh(
     )
     if shape is not None:
         _validate_power_of_two_shape(shape, context=context)
-    padding_as_json(base.get("default_padding"), shape)
+    _padding_as_json(base.get("default_padding"), shape)
     return shape
 
 
@@ -783,11 +773,11 @@ def _validate_parsed_mesh(
         n_cells = _nonnegative_integer(mesh.get("n_cells"), name="reference n_cells")
         base = mesh.get("base_mesh")
         if "base_mesh" not in mesh:
-            padding_as_json(mesh.get("default_padding"))
+            _padding_as_json(mesh.get("default_padding"))
             return n_cells
         if base is None:
             raise ValueError("reference mesh 'base_mesh' must be an object")
-        shape = _validate_parsed_base_mesh(
+        _validate_parsed_base_mesh(
             f,
             base,
             data_start,
@@ -825,7 +815,7 @@ def _validate_parsed_mesh(
     if "base_mesh" in mesh:
         raise ValueError(f"{mesh_class} does not support base_mesh")
     shape = None if value is None else tuple(value)
-    padding_as_json(mesh.get("default_padding"), shape)
+    _padding_as_json(mesh.get("default_padding"), shape)
     return None if shape is None else math.prod(shape)
 
 

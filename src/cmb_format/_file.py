@@ -15,10 +15,9 @@ import numpy as np
 from cmb_format._codec import (
     MAGIC,
     WRITTEN_FORMAT_VERSION,
+    _padding_as_json,
     _validate_raw_mesh,
     base_mesh_descriptor,
-    padding_as_json,
-    raw_mesh_shape,
     read_array,
     read_arrays,
     read_header,
@@ -63,16 +62,11 @@ def _select_model_names(
 
 
 def _normalize_read_mesh_padding(mesh: dict) -> None:
-    """Canonicalize normalized padding values in a loaded mesh descriptor."""
+    """Remove explicit null padding from the recognized descriptor owner."""
     base = base_mesh_descriptor(mesh)
     owner = base if base is not None else mesh
-    if "default_padding" not in owner:
-        return
-    padding = padding_as_json(owner.get("default_padding"), raw_mesh_shape(owner))
-    if padding is None:
+    if owner.get("default_padding") is None:
         owner.pop("default_padding", None)
-    else:
-        owner["default_padding"] = padding
 
 
 def read_file(
@@ -104,9 +98,11 @@ def read_file(
         the geometry ``arrays`` are loaded as read-only NumPy arrays. A
         reference descriptor includes its ``n_cells``; no external mesh is
         loaded, and any unrecognized ``arrays`` key it carries is passed
-        through unconverted. Valid padding is normalized to complete named dictionaries;
-        shared padding is canonicalized onto a nested ``base_mesh`` and an
-        explicit ``null`` padding field is omitted.
+        through unconverted. Recognized padding on tensor and uniform meshes,
+        bare references, and ``base_mesh`` descriptors is returned as a complete
+        dictionary of Python integers; an explicit ``null`` there is omitted.
+        Unrecognized descriptor fields pass through unchanged on reads and are
+        ignored by writers.
     models : dict
         ``{name: {"metadata": {...}, "array": <ndarray>}}`` with read-only
         NumPy arrays and stored model metadata. Empty if no model was selected.
@@ -189,7 +185,7 @@ def read_contents(file_name: str | os.PathLike) -> dict:
                     minimum=1,
                     value_description="three positive integer values",
                 )
-                padding_as_json(mesh_header.get("default_padding"), tuple(shape))
+                _padding_as_json(mesh_header.get("default_padding"), tuple(shape))
                 n_cells = math.prod(int(value) for value in shape)
             else:  # pragma: no cover - read_header validates this first.
                 raise ValueError(f"unknown mesh_class: {mesh_type!r}")

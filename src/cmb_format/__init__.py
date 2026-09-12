@@ -9,13 +9,10 @@ from importlib.metadata import version as _version
 
 from cmb_format._codec import (
     DTYPE_TO_NUMPY,
-    INT8_MAX,
     MAGIC,
     READABLE_FORMAT_VERSIONS,
     WRITTEN_FORMAT_VERSION,
     base_mesh_descriptor,
-    padding_as_json,
-    padding_belongs_to_base_mesh,
     raw_mesh_shape,
     read_array,
     read_arrays,
@@ -33,16 +30,11 @@ from cmb_format._file import (
     read_file,
     write_file,
 )
-from cmb_format._padding import (
-    normalize_default_padding,
-    validate_default_padding_shape,
-)
 
 __version__ = _version("cmb-format")
 
 __all__ = [
     "DTYPE_TO_NUMPY",
-    "INT8_MAX",
     "MAGIC",
     "READABLE_FORMAT_VERSIONS",
     "WRITTEN_FORMAT_VERSION",
@@ -51,9 +43,6 @@ __all__ = [
     "build_file_bytes",
     "is_cmb_file",
     "list_models",
-    "normalize_default_padding",
-    "padding_as_json",
-    "padding_belongs_to_base_mesh",
     "raw_mesh_shape",
     "read_array",
     "read_arrays",
@@ -64,6 +53,5 @@ __all__ = [
     "serialize_array",
     "serialize_mesh",
     "summarize_models",
-    "validate_default_padding_shape",
     "write_file",
 ]
