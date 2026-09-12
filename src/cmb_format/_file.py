@@ -25,6 +25,7 @@ from cmb_format._codec import (
     summarize_models,
     validate_model_lengths,
 )
+from cmb_format._compat import _padding_owner
 from cmb_format._padding import (
     _validate_normalized_padding_shape,
     normalize_integer_array,
@@ -119,13 +120,7 @@ def read_file(
         if "base_mesh" in mesh:
             base = mesh["base_mesh"]
             base["arrays"] = read_arrays(f, data_start, base["arrays"])
-        base = mesh.get("base_mesh")
-        if isinstance(base, dict) and (
-            mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
-        ):
-            owner = base
-        else:
-            owner = mesh
+        owner = _padding_owner(mesh)
         if owner.get("default_padding") is None:
             owner.pop("default_padding", None)
         model_entries = {

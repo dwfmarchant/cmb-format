@@ -37,6 +37,15 @@ def _normalize_field(value, *, format_version: int, context: str):
         raise ValueError(f"invalid {context}: {exc}") from exc
 
 
+def _padding_owner(mesh: dict) -> dict:
+    base = mesh.get("base_mesh")
+    if isinstance(base, dict) and (
+        mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
+    ):
+        return base
+    return mesh
+
+
 def normalize_header_padding(header: dict) -> None:
     """Normalize recognized padding and expose v1 headers in v2 form.
 
@@ -44,21 +53,15 @@ def normalize_header_padding(header: dict) -> None:
     reference meshes, and the base descriptor for meshes that include one.
     """
     mesh = header["mesh"]
-    base = mesh.get("base_mesh")
-    if isinstance(base, dict) and (
-        mesh.get("mode") == "reference" or mesh.get("mesh_class") == "OctreeMesh"
-    ):
-        if "default_padding" in base:
-            base["default_padding"] = _normalize_field(
-                base["default_padding"],
-                format_version=header["format_version"],
-                context="base_mesh.default_padding",
-            )
-    elif "default_padding" in mesh:
-        mesh["default_padding"] = _normalize_field(
-            mesh["default_padding"],
+    owner = _padding_owner(mesh)
+    if "default_padding" in owner:
+        context = (
+            "base_mesh.default_padding" if owner is not mesh else "mesh.default_padding"
+        )
+        owner["default_padding"] = _normalize_field(
+            owner["default_padding"],
             format_version=header["format_version"],
-            context="mesh.default_padding",
+            context=context,
         )
     if header["format_version"] == 1:
         # Keep this migration target literal and independent of future writer bumps.

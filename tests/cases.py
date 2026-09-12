@@ -8,9 +8,16 @@ with exactly representable values make the binary fixtures easier to inspect.
 import numpy as np
 
 import cmb_format as cmb
-from cmb_format._codec import _DTYPE_TO_NUMPY as cmb_format_dtype_table
 
 PADDING_NAMES = ("west", "east", "south", "north", "bottom", "top")
+_DTYPE_ITEMS = (
+    ("float64", "<f8"),
+    ("float32", "<f4"),
+    ("int64", "<i8"),
+    ("int32", "<i4"),
+    ("int16", "<i2"),
+    ("int8", "<i1"),
+)
 
 
 def named_padding(values):
@@ -124,7 +131,7 @@ def _all_dtypes(n):
     """One model per dtype the format defines a token for."""
     return {
         f"m_{name}": {"metadata": {}, "array": np.arange(n, dtype=np.dtype(code))}
-        for name, code in cmb_format_dtype_table.items()
+        for name, code in _DTYPE_ITEMS
     }
 
 

@@ -18,10 +18,14 @@ as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 - Read CMB v1 padding through a single header-boundary compatibility adapter.
 - Upgrade v1 headers to `format_version` 2 when returned by `read_header`.
 - Remove the public `normalize_default_padding`, `validate_default_padding_shape`,
-  `padding_as_json`, `padding_belongs_to_base_mesh`, `INT8_MAX`,
-  `DTYPE_TO_NUMPY`, `base_mesh_descriptor`, `raw_mesh_shape`,
+  `padding_as_json`, `padding_belongs_to_base_mesh`, `resolve_shared_padding`,
+  `INT8_MAX`, `DTYPE_TO_NUMPY`, `base_mesh_descriptor`, `raw_mesh_shape`,
   `resolve_reference_n_cells`, `serialize_array`, and `serialize_mesh` helpers.
-- Expose the installed package version as `cmb_format.__version__`, using `0+unknown` when package metadata is unavailable.
+- Expose the installed package version as `cmb_format.__version__`, using
+  `0+unknown` when package metadata is unavailable.
+- Octree and reference descriptors with a `base_mesh` recognize padding only
+  on `base_mesh`; outer `default_padding` passes through unchanged on reads
+  and is ignored on writes.
 
 ## [0.1.0]
 
