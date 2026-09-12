@@ -23,7 +23,14 @@ consumer mesh; see the [discretize round trips and benchmarks](https://github.co
 ## Installation
 
 Requires Python 3.11 or newer. NumPy is the only runtime dependency.
-From a local checkout:
+
+Install from PyPI:
+
+```bash
+python -m pip install cmb-format
+```
+
+Or install from a local checkout:
 
 ```bash
 python -m pip install .

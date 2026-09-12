@@ -7,7 +7,7 @@ see the [format changelog](FORMAT_CHANGELOG.md) and `docs/binary-format.md`'s
 Versioning section. Which format versions a build handles is stated in code,
 as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
-## [Unreleased]
+## [0.2.0]
 
 - Add selective model loading to `read_file`.
 - Add `list_models` and `read_contents` for inspection without loading model
@@ -31,5 +31,5 @@ as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
 Initial release.
 
-[Unreleased]: https://github.com/dwfmarchant/cmb-format/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.1.0

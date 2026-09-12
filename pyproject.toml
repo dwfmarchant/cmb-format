@@ -1,6 +1,6 @@
 [project]
 name = "cmb-format"
-version = "0.2.0.dev1"
+version = "0.2.0"
 description = "Specification and reference implementation of CMB (Cell Model Binary), a file format for cell-based meshes and the models defined on them"
 readme = "README.md"
 requires-python = ">=3.11"
