@@ -7,7 +7,7 @@ import pytest
 
 import cmb_format as cmb
 from cases import _REFERENCE_CELLS, CASES
-from test_helpers import frame, named_padding, unpack_case
+from test_helpers import frame, named_padding, reorder_octree_payloads, unpack_case
 
 GOLDENS = Path(__file__).parent / "goldens"
 V1_GOLDENS = GOLDENS / "v1"
@@ -392,6 +392,21 @@ def test_read_file_reads_only_geometry_and_selected_model_payloads(
     _mesh, models, _metadata = cmb.read_file(path, models=selection)
 
     assert list(models) == selection
+
+
+def test_read_file_rejects_unordered_octree_before_reading_models(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "unordered.cmb"
+    path.write_bytes(
+        reorder_octree_payloads("octree_base_padding_models", np.arange(15)[::-1])
+    )
+    header, _ = _header_and_data_end(path)
+    # Only geometry reads are allowed, so a model payload read would fail.
+    _spy_payload_reads(monkeypatch, path, _descriptor_ranges(header))
+
+    with pytest.raises(ValueError, match="root-local Morton order"):
+        cmb.read_file(path)
 
 
 def test_read_file_selection_preserves_stored_order_and_skips_unselected_bytes(

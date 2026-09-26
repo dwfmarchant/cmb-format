@@ -24,6 +24,7 @@ from cmb_format._file import (
     read_file,
     write_file,
 )
+from cmb_format._octree import octree_order_keys
 
 try:
     __version__ = _metadata.version("cmb-format")
@@ -38,6 +39,7 @@ __all__ = [
     "build_file_bytes",
     "is_cmb_file",
     "list_models",
+    "octree_order_keys",
     "read_array",
     "read_arrays",
     "read_contents",

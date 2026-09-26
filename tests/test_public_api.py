@@ -13,6 +13,7 @@ EXPECTED_PUBLIC_API = [
     "build_file_bytes",
     "is_cmb_file",
     "list_models",
+    "octree_order_keys",
     "read_array",
     "read_arrays",
     "read_contents",

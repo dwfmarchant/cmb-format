@@ -26,6 +26,7 @@ from cmb_format._codec import (
     validate_model_lengths,
 )
 from cmb_format._compat import _padding_owner
+from cmb_format._octree import _validate_octree_order
 from cmb_format._padding import (
     _validate_normalized_padding_shape,
     normalize_integer_array,
@@ -107,8 +108,12 @@ def read_file(
     Notes
     -----
     Validates the header and checksum-verifies all geometry and selected model
-    arrays. Stored geometry and model order is preserved; no consumer mesh
-    ordering is applied. The file is closed before returning.
+    arrays. Embedded octree cells must be stored in root-local Morton order
+    (see :func:`octree_order_keys`); a file that violates it raises
+    ``ValueError`` before any model payload is read. Accepted geometry and
+    models keep their stored order, and no consumer mesh ordering is applied.
+    Reference-mode files carry no geometry, so their model order is not
+    checked. The file is closed before returning.
     """
     with open(file_name, "rb") as f:
         header, data_start = read_header(f)
@@ -120,6 +125,12 @@ def read_file(
         if "base_mesh" in mesh:
             base = mesh["base_mesh"]
             base["arrays"] = read_arrays(f, data_start, base["arrays"])
+        if mesh["mode"] == "embedded" and mesh["mesh_class"] == "OctreeMesh":
+            _validate_octree_order(
+                mesh["arrays"]["position"],
+                mesh["base_mesh"]["arrays"]["shape"],
+                context="OctreeMesh",
+            )
         owner = _padding_owner(mesh)
         if owner.get("default_padding") is None:
             owner.pop("default_padding", None)
@@ -140,8 +151,9 @@ def list_models(file_name: str | os.PathLike) -> dict:
     The returned mapping is ``{name: {"metadata": {...}, "dtype": "float64",
     "shape": [n]}}`` in stored model order. Header descriptors and payload
     bounds are validated, but
-    no array bytes are read or checksum-verified. In particular, a corrupt model
-    or geometry payload does not affect this inspection result.
+    no array bytes are read or checksum-verified. In particular, corrupt model
+    or geometry payloads and out-of-order octree cells do not affect this
+    inspection result.
     """
     with open(file_name, "rb") as f:
         header, _ = read_header(f, read_shape_payload=False)
@@ -157,7 +169,8 @@ def read_contents(file_name: str | os.PathLike) -> dict:
     descriptors, payload bounds, and scalar padding syntax are validated. The
     only payload read is the top-level ``shape`` array of an embedded
     ``UniformTensorMesh`` (three values needed to compute ``n_cells``); nested
-    base-mesh shape arrays and all model payloads remain untouched.
+    base-mesh shape arrays and all model payloads remain untouched. Octree
+    geometry is not read, so its cell order is not checked.
     """
     with open(file_name, "rb") as f:
         header, data_start = read_header(f, read_shape_payload=False)
@@ -298,6 +311,11 @@ def write_file(
     separately. This avoids the additional complete-file byte string assembled
     by `build_file_bytes`.
 
+    Embedded octree cells must be stored in root-local Morton order (see
+    `octree_order_keys`). Out-of-order or repeated positions raise
+    ``ValueError`` before the output file is opened. Arrays are written in the
+    order supplied and are never reordered.
+
     Parameters
     ----------
     file_name : str or os.PathLike
@@ -332,7 +350,8 @@ def build_file_bytes(
 ) -> bytes:
     """Return a complete CMB file as bytes.
 
-    Accepts the same mesh, model, and metadata dictionaries as `write_file`.
+    Accepts the same mesh, model, and metadata dictionaries as `write_file`
+    and applies the same validation, including the octree cell-order check.
     Holds both the array-data buffer and assembled file in memory; `write_file`
     avoids assembling the complete-file byte string.
     """

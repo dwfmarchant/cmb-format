@@ -58,3 +58,19 @@ def forge_model_shape(case_name, shape):
     descriptor["shape"] = shape
     descriptor["checksum"] = sha256_hex(payload)
     return frame(header, data + payload)
+
+
+def reorder_octree_payloads(case_name, order):
+    """Return a checksum-valid octree case with cells and models in ``order``."""
+    header, data = unpack_case(case_name)
+    data = bytearray(data)
+    descriptors = [header["mesh"]["arrays"][name] for name in ("level", "position")]
+    descriptors += [entry["array"] for entry in header["models"].values()]
+    for descriptor in descriptors:
+        start = descriptor["offset"]
+        end = start + descriptor["length"]
+        dtype = np.dtype(_DTYPE_TO_NUMPY[descriptor["dtype"]])
+        raw = np.frombuffer(bytes(data[start:end]), dtype=dtype)[order].tobytes()
+        data[start:end] = raw
+        descriptor["checksum"] = sha256_hex(raw)
+    return frame(header, bytes(data))

@@ -15,6 +15,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from cmb_format._compat import normalize_header_padding
+from cmb_format._octree import _validate_octree_order, _validate_power_of_two_shape
 from cmb_format._padding import (
     _normalize_default_padding,
     _validate_normalized_padding_shape,
@@ -183,12 +184,9 @@ def _validate_raw_geometry_arrays(mesh_class: str, arrays: dict, *, context: str
     return int(level.size)
 
 
-def _validate_power_of_two_shape(shape: tuple[int, int, int], *, context: str) -> None:
-    if any(value <= 0 or value & (value - 1) for value in shape):
-        raise ValueError(f"{context} base-grid dimensions must each be powers of two")
-
-
-def _validate_raw_base_mesh(base: dict, *, context: str) -> dict[str, int] | None:
+def _validate_raw_base_mesh(
+    base: dict, *, context: str
+) -> tuple[tuple[int, int, int], dict[str, int] | None]:
     if not isinstance(base, dict):
         raise ValueError(f"{context} must be a mapping")
     if base.get("mesh_class") != "UniformTensorMesh":
@@ -198,7 +196,7 @@ def _validate_raw_base_mesh(base: dict, *, context: str) -> dict[str, int] | Non
     )
     _validate_power_of_two_shape(shape, context=context)
     padding = _normalize_default_padding(base.get("default_padding"), shape)
-    return padding
+    return shape, padding
 
 
 def _validate_raw_mesh(
@@ -220,8 +218,11 @@ def _validate_raw_mesh(
                 raise ValueError(
                     "OctreeMesh descriptor missing required key 'base_mesh'"
                 )
-            padding = _validate_raw_base_mesh(
+            base_shape, padding = _validate_raw_base_mesh(
                 mesh["base_mesh"], context="OctreeMesh base_mesh"
+            )
+            _validate_octree_order(
+                mesh["arrays"]["position"], base_shape, context="OctreeMesh"
             )
             return int(shape_or_count), padding
         if "base_mesh" in mesh:
@@ -234,7 +235,7 @@ def _validate_raw_mesh(
         if "base_mesh" not in mesh:
             padding = _normalize_default_padding(mesh.get("default_padding"))
             return n_cells, padding
-        padding = _validate_raw_base_mesh(
+        _, padding = _validate_raw_base_mesh(
             mesh["base_mesh"], context="reference base_mesh"
         )
         return n_cells, padding
@@ -384,7 +385,8 @@ def read_header(
     array when a ``UniformTensorMesh`` needs its values for cell counts and
     padding checks (12 bytes for int32 or 24 bytes for int64), so the default
     call may raise an array checksum error. Other array payloads remain unread
-    and unverified.
+    and unverified, so octree cell order is not checked (``read_file`` checks
+    it).
 
     With ``read_shape_payload=False``, structural header and descriptor checks
     still run without reading any shape payload. Shape values and validations
