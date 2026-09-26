@@ -1,5 +1,6 @@
 """Check root-local Morton ordering keys and their enforcement on octree IO."""
 
+import math
 import pathlib
 import tracemalloc
 
@@ -217,6 +218,32 @@ def test_keys_cover_the_largest_supported_base_grid():
         cmb.octree_order_keys([n_cells], shape)
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 1),
+        (2, 1, 1),
+        (4, 4, 4),
+        (8, 4, 2),
+        (16, 8, 4),
+        (1024, 512, 256),
+        (1024, 1024, 1024),
+        (4096, 4096, 4096),
+        (2**22, 2, 2),
+        (2**21, 2**21, 2**20),
+    ],
+)
+def test_table_keys_match_the_coordinate_formula(shape):
+    # Keys are looked up in tables of position bit slices, whose number and
+    # width depend on the grid; they must equal keys computed from coordinates.
+    position = np.random.default_rng(0).integers(0, math.prod(shape), size=4096)
+    np.testing.assert_array_equal(
+        cmb.octree_order_keys(position, shape),
+        _octree._coordinate_keys(position, shape),
+        strict=True,
+    )
+
+
 @pytest.mark.parametrize("writer", WRITERS)
 @pytest.mark.parametrize("case_name", OCTREE_CASES)
 def test_writers_accept_canonical_octrees_without_changing_inputs(
@@ -336,7 +363,7 @@ def test_chunked_order_check_accepts_canonical_octrees(monkeypatch, chunk, case_
 
 
 def test_order_check_memory_is_bounded_by_the_chunk_size():
-    # Checking 2**20 cells at once would allocate about 80 MiB of keys and
+    # Checking 2**20 cells at once would allocate about 32 MiB of keys and
     # temporaries; chunking keeps the peak to a few MiB.
     shape = (128, 128, 64)
     position = np.arange(np.prod(shape), dtype=np.int32)

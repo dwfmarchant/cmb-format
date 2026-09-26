@@ -5,6 +5,8 @@ See ``docs/binary-format.md`` for the convention. The writers and
 increase.
 """
 
+import functools
+
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
@@ -16,7 +18,11 @@ __all__ = ["octree_order_keys"]
 # dimensions this admits base grids of up to 2**62 cells.
 _MAX_BASE_CELLS = int(np.iinfo(np.int64).max)
 
-# Computing keys takes about 80 bytes of temporaries per cell, so the order
+# Keys are looked up in tables indexed by slices of at most this many position
+# bits, so no table exceeds 2**15 entries (256 KiB).
+_MAX_SLICE_BITS = 15
+
+# Computing keys takes about 32 bytes of temporaries per cell, so the order
 # check works through this many cells at a time.
 _ORDER_CHECK_CHUNK = 1 << 16
 
@@ -100,6 +106,41 @@ def _root_local_keys(
     values: NDArray[np.integer], shape: tuple[int, int, int]
 ) -> NDArray[np.int64]:
     """Compute ordering keys for positions already checked against ``shape``."""
+    values = values.astype(np.int64, copy=False)
+    (shift, table), *rest = _key_tables(shape)
+    keys = table.take((values >> shift) & (table.size - 1))
+    for shift, table in rest:
+        keys |= table.take((values >> shift) & (table.size - 1))
+    return keys
+
+
+@functools.lru_cache(maxsize=8)
+def _key_tables(
+    shape: tuple[int, int, int],
+) -> tuple[tuple[int, NDArray[np.int64]], ...]:
+    """Return ``(shift, table)`` pairs whose lookups combine into keys.
+
+    With power-of-two dimensions, a key rearranges the bits of its position,
+    so it is the bitwise OR of the keys of the position's bit slices. Each
+    table holds the key of every value of one slice.
+    """
+    n_bits = sum(n.bit_length() - 1 for n in shape)
+    n_slices = max(1, -(-n_bits // _MAX_SLICE_BITS))
+    width = max(1, -(-n_bits // n_slices))
+    tables = []
+    for shift in range(0, n_slices * width, width):
+        slice_bits = min(width, n_bits - shift)
+        slice_values = np.arange(1 << slice_bits, dtype=np.int64) << shift
+        table = _coordinate_keys(slice_values, shape)
+        table.flags.writeable = False
+        tables.append((shift, table))
+    return tuple(tables)
+
+
+def _coordinate_keys(
+    values: NDArray[np.integer], shape: tuple[int, int, int]
+) -> NDArray[np.int64]:
+    """Compute keys from cell coordinates; the lookup tables are built from it."""
     nx, ny, nz = shape
     values = values.astype(np.int64, copy=False)
     # Power-of-two dimensions let shifts and masks replace division. Local
