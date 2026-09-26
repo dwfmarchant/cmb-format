@@ -1,12 +1,14 @@
 """Check root-local Morton ordering keys and their enforcement on octree IO."""
 
 import pathlib
+import tracemalloc
 
 import numpy as np
 import pytest
 
 import cmb_format as cmb
 from cases import CASES
+from cmb_format import _octree
 from test_helpers import fresh_case, fresh_mesh, reorder_octree_payloads
 
 GOLDENS = pathlib.Path(__file__).parent / "goldens"
@@ -293,6 +295,64 @@ def test_rejected_write_leaves_destination_and_inputs_untouched(tmp_path):
         np.testing.assert_array_equal(values, copies[name], strict=True)
     assert case["models"]["rho"]["array"] is rho
     np.testing.assert_array_equal(rho, rho_copy, strict=True)
+
+
+@pytest.mark.parametrize("chunk", [1, 4, 7])
+@pytest.mark.parametrize(
+    "case_name, order", [*NONCANONICAL_ORDERS, ("octree_embedded", "repeated")]
+)
+def test_order_check_reports_the_same_error_for_any_chunk_size(
+    monkeypatch, chunk, case_name, order
+):
+    mesh = fresh_mesh(case_name)
+    size = mesh["arrays"]["position"].size
+    if order == "repeated":
+        index = np.append(np.arange(size), size - 1)
+    else:
+        index = _permutation(case_name, order)
+    mesh["arrays"] = {name: values[index] for name, values in mesh["arrays"].items()}
+
+    def order_error():
+        with pytest.raises(ValueError, match=ORDER_ERROR) as excinfo:
+            cmb.build_file_bytes(mesh)
+        return str(excinfo.value)
+
+    # The default chunk holds every cell of these small fixtures, so smaller
+    # chunks must carry the previous key across each boundary.
+    expected = order_error()
+    monkeypatch.setattr(_octree, "_ORDER_CHECK_CHUNK", chunk)
+    assert order_error() == expected
+
+
+@pytest.mark.parametrize("chunk", [1, 4, 7])
+@pytest.mark.parametrize("case_name", OCTREE_CASES)
+def test_chunked_order_check_accepts_canonical_octrees(monkeypatch, chunk, case_name):
+    monkeypatch.setattr(_octree, "_ORDER_CHECK_CHUNK", chunk)
+    case = CASES[case_name]
+    golden = GOLDENS / "v2" / f"{case_name}.cmb"
+    raw = cmb.build_file_bytes(case["mesh"], case["models"], case["metadata"])
+    assert raw == golden.read_bytes()
+    cmb.read_file(golden)
+
+
+def test_order_check_memory_is_bounded_by_the_chunk_size():
+    # Checking 2**20 cells at once would allocate about 80 MiB of keys and
+    # temporaries; chunking keeps the peak to a few MiB.
+    shape = (128, 128, 64)
+    position = np.arange(np.prod(shape), dtype=np.int32)
+    position = position[np.argsort(cmb.octree_order_keys(position, shape))]
+    was_tracing = tracemalloc.is_tracing()
+    if not was_tracing:
+        tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        before, _ = tracemalloc.get_traced_memory()
+        _octree._validate_octree_order(position, shape, context="OctreeMesh")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        if not was_tracing:
+            tracemalloc.stop()
+    assert peak - before < 16 * 2**20
 
 
 @pytest.mark.parametrize("selection", [None, ["rho"], []])

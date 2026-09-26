@@ -16,6 +16,10 @@ __all__ = ["octree_order_keys"]
 # dimensions this admits base grids of up to 2**62 cells.
 _MAX_BASE_CELLS = int(np.iinfo(np.int64).max)
 
+# Computing keys takes about 80 bytes of temporaries per cell, so the order
+# check works through this many cells at a time.
+_ORDER_CHECK_CHUNK = 1 << 16
+
 
 def _validate_power_of_two_shape(shape: tuple[int, int, int], *, context: str) -> None:
     if any(value <= 0 or value & (value - 1) for value in shape):
@@ -55,6 +59,14 @@ def octree_order_keys(position: ArrayLike, shape: ArrayLike) -> NDArray[np.int64
     permutation to ``level``, ``position``, and every model array. Sorting
     cannot repair model values that already describe the wrong cells.
     """
+    values, base_shape = _validate_key_inputs(position, shape)
+    return _root_local_keys(values, base_shape)
+
+
+def _validate_key_inputs(
+    position: ArrayLike, shape: ArrayLike
+) -> tuple[NDArray[np.integer], tuple[int, int, int]]:
+    """Return positions and the base-grid shape after checking their limits."""
     nx, ny, nz = (
         int(value)
         for value in normalize_integer_array(
@@ -81,8 +93,15 @@ def octree_order_keys(position: ArrayLike, shape: ArrayLike) -> NDArray[np.int64
             f"octree position values must lie in [0, {n_base_cells}) for "
             f"base-grid shape {(nx, ny, nz)}"
         )
-    values = values.astype(np.int64, copy=False)
+    return values, (nx, ny, nz)
 
+
+def _root_local_keys(
+    values: NDArray[np.integer], shape: tuple[int, int, int]
+) -> NDArray[np.int64]:
+    """Compute ordering keys for positions already checked against ``shape``."""
+    nx, ny, nz = shape
+    values = values.astype(np.int64, copy=False)
     # Power-of-two dimensions let shifts and masks replace division. Local
     # coordinates are below L <= 2**20, since L**3 <= nx * ny * nz <= 2**62.
     x_bits = nx.bit_length() - 1
@@ -117,12 +136,19 @@ def _validate_octree_order(
     position: ArrayLike, shape: ArrayLike, *, context: str
 ) -> None:
     """Raise unless octree cells are stored in strictly increasing key order."""
-    keys = octree_order_keys(position, shape)
-    unordered = keys[1:] <= keys[:-1]
-    if not unordered.any():
+    values, base_shape = _validate_key_inputs(position, shape)
+    index = None
+    previous_key = -1
+    for start in range(0, values.size, _ORDER_CHECK_CHUNK):
+        chunk = values[start : start + _ORDER_CHECK_CHUNK]
+        keys = _root_local_keys(chunk, base_shape)
+        unordered = np.diff(keys, prepend=previous_key) <= 0
+        if unordered.any():
+            index = start + int(unordered.argmax())
+            break
+        previous_key = int(keys[-1])
+    if index is None:
         return
-    index = int(unordered.argmax()) + 1
-    values = np.asarray(position)
     current, previous = int(values[index]), int(values[index - 1])
     if current == previous:
         problem = f"position {current} is repeated at indices {index - 1} and {index}"
