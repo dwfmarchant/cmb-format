@@ -39,8 +39,10 @@ python -m pip install .
 ## Usage
 
 The API accepts dictionaries of NumPy arrays describing meshes and models.
-CMB uses a different cell ordering from UBC GIF; these routines do not
-convert between the two. See
+CMB cell ordering differs from UBC GIF's, and these routines never reorder
+arrays. Tensor meshes number cells x fastest. Embedded octree cells must be
+stored in root-local Morton order, which the writers and `read_file` enforce;
+see [Octree cell order](#octree-cell-order) and
 [Cell numbering / ordering](https://github.com/dwfmarchant/cmb-format/blob/main/docs/binary-format.md#cell-numbering-ordering)
 in the format specification.
 
@@ -123,10 +125,64 @@ deferred. The returned header contains normalized named dictionaries for
 recognized padding, including when it reads a legacy v1 file, and uses
 `format_version` 2. Unrecognized fields remain unchanged.
 
+### Octree cell order
+
+Embedded octree cells must be stored in root-local Morton order. The base grid
+is divided into cubic roots of `L = min(nx, ny, nz)` base cells per axis;
+roots are visited x fastest, then y, then z, and the cells in each root follow
+the Morton order of their lower corners. `octree_order_keys(position, shape)`
+returns each cell's ordering key, and the stored keys must strictly increase.
+`write_file` and `build_file_bytes` reject embedded octree geometry that is out
+of order or repeats a position; `write_file` does so before opening the output
+file. `read_file` rejects such files after verifying the geometry and before
+reading any model payload. Nothing reorders arrays, and keeping each model
+value aligned with the cell it describes is the caller's responsibility. To
+put cells in order, apply one permutation to `level`, `position`, and every
+model:
+
+```python
+order = np.argsort(cmb.octree_order_keys(position, shape), kind="stable")
+```
+
+Reference-mode files store no octree geometry, so their model order cannot be
+checked. Store reference models in the root-local order of the mesh they
+accompany; matching `n_cells` or `base_mesh` does not show that the cells
+match.
+
+`read_header`, `read_array`, and `read_arrays` return stored arrays without
+checking cell order, and `list_models` and `read_contents` do not read octree
+geometry, so a successful inspection does not certify the order. The low-level
+readers can migrate a file written in another order:
+
+```python
+with open("unordered.cmb", "rb") as f:
+    header, data_start = cmb.read_header(f)
+    mesh = header["mesh"]
+    mesh["arrays"] = cmb.read_arrays(f, data_start, mesh["arrays"])
+    base = mesh["base_mesh"]
+    base["arrays"] = cmb.read_arrays(f, data_start, base["arrays"])
+    models = {
+        name: {**entry, "array": cmb.read_array(f, data_start, entry["array"])}
+        for name, entry in header.get("models", {}).items()
+    }
+
+keys = cmb.octree_order_keys(mesh["arrays"]["position"], base["arrays"]["shape"])
+order = np.argsort(keys, kind="stable")
+mesh["arrays"] = {name: values[order] for name, values in mesh["arrays"].items()}
+for entry in models.values():
+    entry["array"] = entry["array"][order]
+cmb.write_file("ordered.cmb", mesh, models, header.get("metadata", {}))
+```
+
+Sorting keeps each model value with its cell only if the original file already
+paired them correctly. It cannot repair models that are misaligned with the
+geometry.
+
 For measured large-octree and tensor round trips and timing methodology, see
 [the discretize interoperability notes](https://github.com/dwfmarchant/cmb-format/blob/main/docs/discretize.md). On the measured
-2.18-million-leaf sample, the generated CMB file is 10.4 MiB versus 28.8 MiB
-for UBC, and conversion plus CMB writing is about 21× faster.
+2.18-million-cell sample, the generated CMB file is 10.4 MiB versus 28.8 MiB
+for UBC, and conversion plus CMB writing was about 21× faster in measurements
+taken before octree cell-order validation was added.
 
 ## Development
 

@@ -78,11 +78,11 @@ _OCTREE_LEVEL = np.array([0] * 8 + [1] * 7, dtype=np.int8)
 _OCTREE_POSITION = np.array(
     [0, 1, 4, 5, 16, 17, 20, 21, 2, 8, 10, 32, 34, 40, 42], dtype=np.int32
 )
-# Preserve each cell's original resistivity while reordering the leaves.
+# Preserve each cell's original resistivity while reordering the cells.
 _OCTREE_RHO = np.array([1, 2, 4, 5, 8, 9, 10, 11, 3, 6, 7, 12, 13, 14, 15], dtype=float)
 
 # An 8x4x2 base grid has eight 2x2x2 roots. Refine the first root into eight
-# level-0 leaves, then visit the seven remaining roots in x-fastest order.
+# level-0 cells, then visit the seven remaining roots in x-fastest order.
 # Root corners 4 and 6 precede 16 here; a global Morton sort reverses that.
 _RECTANGULAR_POSITION = np.array(
     [0, 1, 8, 9, 32, 33, 40, 41, 2, 4, 6, 16, 18, 20, 22], dtype=np.int32

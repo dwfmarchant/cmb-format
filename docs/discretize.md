@@ -8,11 +8,14 @@ python -m pip install discretize
 
 Replace `large_octree_mesh.msh` with a local UBC octree file; the benchmark
 dataset is not bundled with this repository. The conversion assumes an octree
-with a uniform base grid. A CMB octree stores each leaf as one `level` and
+with a uniform base grid. A CMB octree stores each cell as one `level` and
 `position` value; `position` is a Fortran-order, x-fastest index into the
-base-grid shape. Model arrays stay in that same leaf row order. The mesh and
-model values are typed arrays; file metadata is JSON header data, not a
-checksummed array payload.
+base-grid shape. `TreeMesh.__getstate__()` returns cells in the root-local
+Morton order that CMB requires, which is also the `TreeMesh` cell order.
+Models defined on the mesh can therefore be written unchanged, and models read
+from a valid CMB octree line up with the reconstructed tree. The mesh and model
+values are typed arrays; file metadata is JSON header data, not a checksummed
+array payload.
 
 ## Complete `TreeMesh` ↔ CMB dictionary demo
 
@@ -139,10 +142,11 @@ the local machine and environment.
 
 ## Large-octree timings
 
-The measurements below use the same 2,180,697-leaf octree with a
+The measurements below use the same 2,180,697-cell octree with a
 1024 × 1024 × 1024 base grid and geometry only (no model arrays). Array-only
 reads avoid building the tree hierarchy; full-tree timings include
-reconstruction.
+reconstruction. They predate the octree cell-order check that CMB reads and
+writes now perform, which adds one pass over `position`.
 
 | Path | Operation | Median wall time |
 | --- | --- | ---: |

@@ -7,6 +7,20 @@ see the [format changelog](FORMAT_CHANGELOG.md) and `docs/binary-format.md`'s
 Versioning section. Which format versions a build handles is stated in code,
 as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
+## Unreleased
+
+- Enforce root-local Morton order for embedded octree cells. `write_file`,
+  `build_file_bytes`, and `read_file` now reject cells whose ordering keys do
+  not strictly increase, including repeated positions, as well as positions
+  outside the base grid. The format has always required this order, but
+  earlier releases wrote and read other orders without complaint, so such
+  files no longer load with `read_file`. They still open with `read_header`,
+  `read_array`, and `read_arrays`, and the README shows how to migrate them.
+  Arrays are never reordered.
+- Add `octree_order_keys`, which returns root-local Morton ordering keys for
+  octree cell positions.
+- Use cell terminology for octree cells in the documentation.
+
 ## [0.2.0]
 
 - Add selective model loading to `read_file`.

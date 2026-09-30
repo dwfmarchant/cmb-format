@@ -123,13 +123,16 @@ readers to check model lengths without opening a separate mesh file.
 without `base_mesh` may include `default_padding`. The caller is responsible
 for pairing the models with the correct mesh.
 
-Reference mode is useful for octrees, whose per-leaf geometry can be large.
+Reference mode is useful for octrees, whose per-cell geometry can be large.
 Tensor meshes may also use reference mode, although their smaller geometry
 arrays usually make embedding practical.
 
 An octree reference may include `base_mesh` to describe its domain and
 finest cell size. Readers can compare it with the paired mesh's base grid,
 but equal base grids do not establish that the octree refinements match.
+Because a reference file stores no octree geometry, readers also cannot check
+that its models follow the paired mesh's cell order (see
+[Cell numbering / ordering](#cell-numbering-ordering)).
 
 ### Default padding
 
@@ -199,8 +202,8 @@ The geometry arrays for each embedded `mesh_class` are:
 | `TensorMesh` | `h_x`, `h_y`, `h_z` | `[nx]`, `[ny]`, `[nz]`, respectively | `float64` |
 | `UniformTensorMesh` | `origin`, `cell_size` | `[3]` each | `float64` |
 | `UniformTensorMesh` | `shape` | `[3]` | `int32` or `int64` |
-| `OctreeMesh` | `level` | `[n_leaves]` | `int8` |
-| `OctreeMesh` | `position` | `[n_leaves]` | `int32` or `int64` |
+| `OctreeMesh` | `level` | `[n_cells]` | `int8` |
+| `OctreeMesh` | `position` | `[n_cells]` | `int32` or `int64` |
 
 `int32` is the recommended default for `position` and `shape`. Both also
 permit `int64`, and readers must support either type. Use `int64` where the
@@ -227,11 +230,11 @@ zero, advancing `x` fastest, then `y`, then `z`. For cell coordinates
 
 **Octree position encoding:** each `position` is the same x-fastest linear
 index into the finest-resolution `base_mesh` grid. It identifies the base
-cell at the leaf's bottom-south-west corner. A leaf at `level = 0` has the
-base cell size; at level `l` it spans `2**l` base cells along each axis.
-Position encoding is independent of the order in which leaves are stored.
+cell at the octree cell's bottom-south-west corner. A cell at `level = 0` has
+the base cell size; at level `l` it spans `2**l` base cells along each axis.
+Position encoding is independent of the order in which cells are stored.
 
-**Octree leaf order:** `level` and `position` use **root-local Morton order**.
+**Octree cell order:** `level` and `position` use **root-local Morton order**.
 For base-grid shape `(nx, ny, nz)`, let `L = min(nx, ny, nz)`:
 
 1. Partition the base grid into roots of `L` base cells along each axis.
@@ -241,16 +244,46 @@ For base-grid shape `(nx, ny, nz)`, let `L = min(nx, ny, nz)`:
    (`1`) half along its axis. Visit all descendants of a child before
    advancing to the next child, emitting a cell when a leaf is reached.
 
+The same order can be computed without a recursive traversal. Give each cell
+a key from its lower corner `(i, j, k)`:
+
+```text
+key = root_id * L**3 + morton(i % L, j % L, k % L)
+root_id = i // L + (nx // L) * (j // L + (ny // L) * (k // L))
+```
+
+`root_id` numbers the roots in visiting order, and `morton` interleaves the
+bits of the corner's coordinates within its root, so each three-bit group is
+`x_bit + 2*y_bit + 4*z_bit`. Each cell covers a consecutive run of keys that
+starts at its own key. For a valid octree, whose cells cover the base grid
+without gaps or overlaps, the traversal therefore visits cells in strictly
+increasing key order. Because each base cell has its own key, strictly
+increasing keys also mean that no two cells share a lower corner.
+
+For example, a `4 × 4 × 4` grid is a single root. Refining its first
+`2 × 2 × 2` block into eight unit cells and leaving the other seven blocks
+whole gives 15 cells with keys 0 through 7, then 8, 16, 24, 32, 40, 48, and
+56. Each whole block covers eight base cells, so the next key is 8 higher.
+
 Root-local traversal can differ from a single global Morton sort on a
-rectangular base grid. All octree model arrays use the same leaf order as
-`level` and `position`, including in reference-mode files.
+rectangular base grid. On an `8 × 4 × 2` grid, `L = 2` and the roots form a
+`4 × 2 × 1` grid. Root-local order visits the root at `(4, 0, 0)` (position 4)
+before the root at `(0, 2, 0)` (position 16), whereas a Morton code over the
+whole grid ranks `(0, 2, 0)` first.
+
+All octree model arrays use the same cell order as `level` and `position`,
+including in reference-mode files. A reference file stores no octree geometry,
+so its model order cannot be checked; pairing reference models with the mesh
+they describe remains the caller's responsibility.
 
 Each octree base-grid dimension must be a positive power of two. Consequently
 `L` is a power of two that divides each base-grid dimension, making the root
 partition well-defined.
 
-The Python I/O routines preserve supplied array order. Callers must supply
-geometry and model values in the appropriate CMB order.
+The Python writers and `read_file` reject embedded octree geometry whose keys
+do not strictly increase, and they never reorder arrays.
+`cmb_format.octree_order_keys` computes the keys. Low-level array reads and
+header inspection do not check cell order.
 
 ### Models
 
@@ -288,12 +321,17 @@ array descriptor. Each model is a one-dimensional array of length
   `n_cells`. In embedded mode it comes from the geometry: the product of the
   `h_x`/`h_y`/`h_z` lengths for `TensorMesh`, the product of the `shape`
   values for `UniformTensorMesh`, and the `level` length for `OctreeMesh`.
+- For an embedded `OctreeMesh`, ordering keys computed from `position`
+  strictly increase (see [Cell numbering / ordering](#cell-numbering-ordering)).
+  Readers that do not read `position`, such as header inspection, cannot
+  check this.
 - When reading a reference-mode file with its paired embedded mesh, compare
   their base grids if the reference carries `base_mesh`. A match is only a
-  consistency check; pairing the correct mesh and models remains the
-  caller's responsibility.
+  consistency check: it does not show that the octree refinements match or
+  that the reference models follow the mesh's cell order. Pairing the correct
+  mesh and models remains the caller's responsibility.
 
-Geometric validation, such as positive widths or cell sizes and octree leaf
+Geometric validation, such as positive widths or cell sizes and octree cell
 alignment and tiling, is the receiving application's responsibility.
 
 ## Versioning
