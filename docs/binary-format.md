@@ -244,18 +244,26 @@ For base-grid shape `(nx, ny, nz)`, let `L = min(nx, ny, nz)`:
    (`1`) half along its axis. Visit all descendants of a child before
    advancing to the next child, emitting a cell when a leaf is reached.
 
-For an octree that tiles its base grid, this traversal stores cells in
-strictly increasing order of
+The same order can be computed without a recursive traversal. Give each cell
+a key from its lower corner `(i, j, k)`:
 
 ```text
 key = root_id * L**3 + morton(i % L, j % L, k % L)
 root_id = i // L + (nx // L) * (j // L + (ny // L) * (k // L))
 ```
 
-where `(i, j, k)` is the cell's lower corner and `morton` interleaves the bits
-of its arguments so that each three-bit group is `x_bit + 2*y_bit + 4*z_bit`.
-Keys number the base cells, so cells in this order never repeat a lower
-corner.
+`root_id` numbers the roots in visiting order, and `morton` interleaves the
+bits of the corner's coordinates within its root, so each three-bit group is
+`x_bit + 2*y_bit + 4*z_bit`. Each cell covers a consecutive run of keys that
+starts at its own key. For a valid octree, whose cells cover the base grid
+without gaps or overlaps, the traversal therefore visits cells in strictly
+increasing key order. Because each base cell has its own key, strictly
+increasing keys also mean that no two cells share a lower corner.
+
+For example, a `4 × 4 × 4` grid is a single root. Refining its first
+`2 × 2 × 2` block into eight unit cells and leaving the other seven blocks
+whole gives 15 cells with keys 0 through 7, then 8, 16, 24, 32, 40, 48, and
+56. Each whole block covers eight base cells, so the next key is 8 higher.
 
 Root-local traversal can differ from a single global Morton sort on a
 rectangular base grid. On an `8 × 4 × 2` grid, `L = 2` and the roots form a
