@@ -180,7 +180,7 @@ def test_keys_follow_input_order_without_modifying_inputs():
         ([0], (4, 4, 0), "positive"),
         ([0], (4, 4, 3), "powers of two"),
         ([0], (4, 4, True), "booleans"),
-        ([0], (2**21, 2**21, 2**21), r"2\*\*62"),
+        ([0], (2**22, 2**21, 2**21), r"2\*\*63"),
         ([-1], (4, 4, 4), "lie in"),
         ([64], (4, 4, 4), "lie in"),
         (np.array([2**64 - 1], dtype=np.uint64), (4, 4, 4), "lie in"),
@@ -205,11 +205,11 @@ def test_keys_limit_local_not_global_coordinates():
     assert keys.tolist() == [0, last_root + 1, last_root + 7]
 
 
-def test_keys_cover_the_largest_supported_base_grid():
-    # 2**62 base cells: L = 2**20 and a 2x2x1 grid of roots. The final corner
-    # has the final key; larger grids are rejected before computing keys.
-    shape = (2**21, 2**21, 2**20)
-    n_cells = 2**62
+@pytest.mark.parametrize("shape", [(2**21, 2**21, 2**21), (2**22, 2**21, 2**20)])
+def test_keys_cover_the_largest_supported_base_grids(shape):
+    # 2**63 base cells, as one root with L = 2**21 or as a 4x2x1 grid of roots
+    # with L = 2**20. The final corner has the final key, the largest int64.
+    n_cells = 2**63
     assert cmb.octree_order_keys([0, n_cells - 1], shape).tolist() == [
         0,
         n_cells - 1,
@@ -231,6 +231,8 @@ def test_keys_cover_the_largest_supported_base_grid():
         (4096, 4096, 4096),
         (2**22, 2, 2),
         (2**21, 2**21, 2**20),
+        (2**21, 2**21, 2**21),
+        (2**22, 2**21, 2**20),
     ],
 )
 def test_table_keys_match_the_coordinate_formula(shape):
@@ -242,6 +244,41 @@ def test_table_keys_match_the_coordinate_formula(shape):
         _octree._coordinate_keys(position, shape),
         strict=True,
     )
+
+
+@pytest.mark.parametrize("writer", WRITERS)
+def test_octree_on_the_largest_base_grid_round_trips(tmp_path, writer):
+    # One level-21 cell fills a grid of 2**63 base cells, whose last key is
+    # the largest int64.
+    mesh = fresh_mesh("octree_embedded")
+    mesh["arrays"] = {
+        "level": np.array([21], dtype=np.int8),
+        "position": np.array([0], dtype=np.int64),
+    }
+    mesh["base_mesh"]["arrays"]["shape"] = np.full(3, 2**21, dtype=np.int64)
+    path = tmp_path / "largest.cmb"
+    _write(writer, path, mesh)
+    loaded, _, _ = cmb.read_file(path)
+    assert loaded["arrays"]["level"].tolist() == [21]
+    assert loaded["arrays"]["position"].tolist() == [0]
+
+
+def test_order_check_compares_keys_at_the_top_of_the_int64_range():
+    # On a grid of 2**63 base cells the last two base cells have keys
+    # 2**63 - 2 and 2**63 - 1; a cell with the largest key can come first.
+    mesh = fresh_mesh("octree_embedded")
+    mesh["base_mesh"]["arrays"]["shape"] = np.full(3, 2**21, dtype=np.int64)
+    last = 2**63 - 1
+    for position in ([last], [last - 1, last]):
+        mesh["arrays"] = {
+            "level": np.zeros(len(position), dtype=np.int8),
+            "position": np.array(position, dtype=np.int64),
+        }
+        cmb.build_file_bytes(mesh)
+    mesh["arrays"] = {name: values[::-1] for name, values in mesh["arrays"].items()}
+    expected = f"position {last - 1} at index 1 belongs before position {last}"
+    with pytest.raises(ValueError, match=expected):
+        cmb.build_file_bytes(mesh)
 
 
 @pytest.mark.parametrize("writer", WRITERS)

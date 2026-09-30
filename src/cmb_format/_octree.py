@@ -14,9 +14,9 @@ from cmb_format._padding import normalize_integer_array
 
 __all__ = ["octree_order_keys"]
 
-# Keys number base cells, so every key must fit in int64. With power-of-two
-# dimensions this admits base grids of up to 2**62 cells.
-_MAX_BASE_CELLS = int(np.iinfo(np.int64).max)
+# Keys number base cells from zero, so the largest key, one less than the
+# number of base cells, must fit in int64. This admits up to 2**63 cells.
+_MAX_BASE_CELLS = 2**63
 
 # Keys are looked up in tables indexed by slices of at most this many position
 # bits, so no table exceeds 2**15 entries (256 KiB).
@@ -50,7 +50,7 @@ def octree_order_keys(position: ArrayLike, shape: ArrayLike) -> NDArray[np.int64
         lower corners, each in ``[0, nx * ny * nz)``.
     shape : sequence of int
         Base-grid shape ``(nx, ny, nz)``. Each dimension must be a positive
-        power of two, and the grid may contain at most ``2**62`` cells.
+        power of two, and the grid may contain at most ``2**63`` cells.
 
     Returns
     -------
@@ -87,7 +87,7 @@ def _validate_key_inputs(
     n_base_cells = nx * ny * nz
     if n_base_cells > _MAX_BASE_CELLS:
         raise ValueError(
-            f"octree base grid {(nx, ny, nz)} exceeds 2**62 cells, so its "
+            f"octree base grid {(nx, ny, nz)} exceeds 2**63 cells, so its "
             "ordering keys would not fit in int64"
         )
 
@@ -144,7 +144,7 @@ def _coordinate_keys(
     nx, ny, nz = shape
     values = values.astype(np.int64, copy=False)
     # Power-of-two dimensions let shifts and masks replace division. Local
-    # coordinates are below L <= 2**20, since L**3 <= nx * ny * nz <= 2**62.
+    # coordinates are below L <= 2**21, since L**3 <= nx * ny * nz <= 2**63.
     x_bits = nx.bit_length() - 1
     y_bits = ny.bit_length() - 1
     root_bits = min(nx, ny, nz).bit_length() - 1
@@ -183,7 +183,8 @@ def _validate_octree_order(
     for start in range(0, values.size, _ORDER_CHECK_CHUNK):
         chunk = values[start : start + _ORDER_CHECK_CHUNK]
         keys = _root_local_keys(chunk, base_shape)
-        unordered = np.diff(keys, prepend=previous_key) <= 0
+        # Compare keys directly: subtracting them can overflow int64.
+        unordered = np.concatenate(([keys[0] <= previous_key], keys[1:] <= keys[:-1]))
         if unordered.any():
             index = start + int(unordered.argmax())
             break
