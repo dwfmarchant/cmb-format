@@ -272,7 +272,8 @@ def _json_default(value):
     """Convert supported NumPy scalars in metadata to built-in JSON scalars."""
     if isinstance(value, np.bool_):
         return bool(value)
-    if isinstance(value, np.integer):
+    # np.timedelta64 subclasses np.integer; converting it would drop its unit.
+    if isinstance(value, np.integer) and not isinstance(value, np.timedelta64):
         return int(value)
     if isinstance(value, _JSON_FLOAT_SCALARS):
         return float(value)

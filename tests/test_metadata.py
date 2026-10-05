@@ -103,11 +103,21 @@ def test_numpy_scalars_serialize_like_python_scalars():
     [
         np.complex64(1 + 2j),
         np.datetime64("2026-01-01"),
+        np.timedelta64(5, "ns"),
+        np.timedelta64(5, "D"),
         np.array([1.0, 2.0]),
         np.array(1.0),
         object(),
     ],
-    ids=["complex", "datetime64", "array", "0d-array", "object"],
+    ids=[
+        "complex",
+        "datetime64",
+        "timedelta64-ns",
+        "timedelta64-D",
+        "array",
+        "0d-array",
+        "object",
+    ],
 )
 @pytest.mark.parametrize("level", ["file", "model"])
 def test_unsupported_metadata_values_raise_before_writing(tmp_path, value, level):
