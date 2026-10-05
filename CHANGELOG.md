@@ -7,7 +7,7 @@ see the [format changelog](FORMAT_CHANGELOG.md) and `docs/binary-format.md`'s
 Versioning section. Which format versions a build handles is stated in code,
 as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
-## [Unreleased]
+## [0.4.0]
 
 - Accept NumPy boolean, integer, and `float16`/`float32`/`float64` scalars in
   file and model metadata passed to `write_file` and `build_file_bytes`,
@@ -52,6 +52,7 @@ as `WRITTEN_FORMAT_VERSION` and `READABLE_FORMAT_VERSIONS`.
 
 Initial release.
 
+[0.4.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.4.0
 [0.3.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.3.0
 [0.2.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dwfmarchant/cmb-format/releases/tag/v0.1.0
