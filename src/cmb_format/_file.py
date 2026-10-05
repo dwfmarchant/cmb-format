@@ -265,6 +265,26 @@ def _resolve_model_count(mesh: dict, models: dict, expected: int | None) -> int:
     return n_cells
 
 
+_JSON_FLOAT_SCALARS = (np.float16, np.float32, np.float64)
+
+
+def _json_default(value):
+    """Convert supported NumPy scalars in metadata to built-in JSON scalars."""
+    if isinstance(value, np.bool_):
+        return bool(value)
+    # np.timedelta64 subclasses np.integer; converting it would drop its unit.
+    if isinstance(value, np.integer) and not isinstance(value, np.timedelta64):
+        return int(value)
+    if isinstance(value, _JSON_FLOAT_SCALARS):
+        return float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _encode_header(header: dict) -> bytes:
+    """Serialize a header dictionary to UTF-8 JSON bytes."""
+    return json.dumps(header, default=_json_default).encode("utf-8")
+
+
 def _assemble(mesh: dict, models: dict | None, metadata: dict | None):
     """Build the header dictionary and its array-data buffer."""
     if not isinstance(mesh, dict):
@@ -331,10 +351,13 @@ def write_file(
         If there are no models, the reference descriptor must supply ``n_cells``.
         Named model entries are serialized in caller insertion order.
     metadata : dict, optional
-        File-level metadata.
+        File-level metadata. File and model metadata must be JSON-compatible;
+        NumPy boolean, integer, and float16/float32/float64 scalars are also
+        accepted, including inside nested dictionaries and lists, and are
+        stored as the equivalent JSON values.
     """
     header, buffer = _assemble(mesh, models, metadata)
-    blob = json.dumps(header).encode("utf-8")
+    blob = _encode_header(header)
     with open(file_name, "wb") as f:
         f.write(MAGIC)
         f.write(buffer)
@@ -356,5 +379,5 @@ def build_file_bytes(
     avoids assembling the complete-file byte string.
     """
     header, buffer = _assemble(mesh, models, metadata)
-    blob = json.dumps(header).encode("utf-8")
+    blob = _encode_header(header)
     return MAGIC + bytes(buffer) + blob + struct.pack("<Q", len(blob)) + MAGIC

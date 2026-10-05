@@ -91,6 +91,14 @@ by writers. The NumPy arrays are read-only; use `.copy()` if you need to modify
 them. `models=None` loads every model, `models=[]` loads none, and duplicate
 selections collapse in stored file order.
 
+File and model metadata are stored as JSON, so values must be JSON-compatible.
+NumPy boolean, integer, and `float16`/`float32`/`float64` scalars are also
+accepted anywhere in metadata and read back as Python `bool`, `int`, and
+`float`. Integers are preserved exactly, and narrow floats widen exactly, so
+`np.float32(0.1)` reads back as `0.10000000149011612`. Other objects, including
+NumPy arrays, complex scalars, and NumPy scalars used as dictionary keys, raise
+`TypeError` before any file is written.
+
 For inexpensive inspection, use the raw header summaries:
 
 ```python
